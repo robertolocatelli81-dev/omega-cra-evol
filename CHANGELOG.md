@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — a CycloneDX document is checked against the official schema of its version
+
+**Rule (written before the code, 14/11/2026).** `cra sbom --from-cyclonedx` (`sbom_from_cyclonedx`) validates the
+document against the official JSON schema of its declared
+`specVersion` (1.2 … 1.7: `bom-<v>.schema.json` of CycloneDX/specification at `6470e34`, with `spdx.schema.json`,
+`jsf-0.82.schema.json` and `cryptography-defs.schema.json`, shipped in the wheel), JSON Schema draft-07 with the
+`format` keyword asserted for the five defined formats the schemas use (`date`, `date-time`, `idn-email`,
+`iri-reference`, `uri`; `bom-1.2` also writes `"format": "string"` four times, not a format draft-07 defines, which no
+validator asserts). `uniqueItems` is checked in linear time with jsonschema's equality, and the check runs under the
+recursion allowance of the parser, so every document the parser accepts (nesting up to 512) can be checked.
+
+1. A document the schema rejects is refused with the reason (`CycloneDX not conformant to bom-<v>.schema.json at
+   <path>: <message>`), and nothing is recorded — as any other malformed document. With `--allow-nonconformant`
+   (`allow_nonconformant=True`) it is recorded instead, with `source.schema_check` = `not conformant to
+   bom-<v>.schema.json at <path>: <message>`, and `sbom_floor_met` is false. This is the default and the switch of
+   Dependency-Track (`bom.validation.mode`, `ENABLED` by default, `ConfigPropertyConstants.java` at `be365f9`).
+2. The check needs the extra `[schema]` (`jsonschema[format-nongpl]` 4.25 or later — the first whose `format-nongpl`
+   checks `iri-reference` —: the format checkers without the GPL `rfc3987`;
+   measured on 14/11/2026 to give the same verdicts as `jsonschema[format]` on the 359 suite files and on the 1,127 files
+   below, the same 277 refused). Without it, with a jsonschema older than 4.25, or when a checker for one of the five
+   formats is missing (jsonschema skips a format it cannot check without saying so), the document is recorded with
+   `source.schema_check` = `not checked: <reason>`, and `sbom_floor_met` is false: an unchecked document never
+   evidences the Annex I floor.
+3. A conformant document is recorded with `source.schema_check` = `conformant to bom-<v>.schema.json`; the floor is
+   then decided as before (at least one resolved component).
+4. SPDX documents and the installed floor are not affected; entries recorded before this change are verified as before.
+
+Why: on 14/11/2026, 0.10.0 recorded 135 of the 141 invalid files (139 `invalid-*`, 2 `skip_invalid-*`) of the
+official CycloneDX test suite (1.2 … 1.7, 359 JSON files at `6470e34`) and 103 of them as floor met; only the 6 with
+a wrong `bomFormat` were refused. The official schemas with the format checks give the suite's answer on 359/359
+files; without the format checks the 6 `invalid-metadata-timestamp-*` files
+validate. Real generator files are not all conformant: among 1,127 CycloneDX JSON files (900 distinct by SHA-256) of 19 external projects downloaded for
+the test round (generators, libraries, consumers), 277 fail their schema and 2 declare no specVersion from 1.2 to 1.7;
+most are deliberately invalid test inputs,
+but expected outputs and fixtures of scancode-toolkit (`null` strings), osv-scanner (`type: ""`), dep-scan (`null`
+arrays), Dependency-Track (`version` missing in 1.4) and one of cdxgen fail too — hence the switch of rule 1.
+Second oracle: the official `cyclonedx-cli` 0.33.1 (release asset sha256 `bfc8b253…3c58746`, equal to the one GitHub
+publishes) gives the suite's answer on all 359 suite files (each given its `specVersion`) and agrees with this check on
+1,124 of the 1,125 real files above. The one it accepts, CycloneDX sbom-utility's
+`cdx-1-4-validate-err-components-format-iri-reference.json` (`git@github.com:indutny/asn1.js` as an `iri-reference`), is an
+expected validation error by its own name; `cyclonedx-cli` does not assert that format.
+
 ## 0.10.0 — 2026-11-13 — renamed to omega-cra-evol
 
 Renamed from `cra-evidence` to `omega-cra-evol`. The name was changed on purpose, so that this project is not mistaken for other products with a similar name; it is not affiliated with any of them. The earlier name was also not available as a PyPI project name. Formats,

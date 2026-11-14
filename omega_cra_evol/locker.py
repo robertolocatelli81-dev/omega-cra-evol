@@ -151,7 +151,9 @@ class EvidenceLocker:
                              # conservative by design: zero RESOLVED components (a declared-but-NOT-INSTALLED dependency
                              # is not one) never EVIDENCES the Annex I floor, even for a product that truly has no
                              # dependencies (state that in the SBOM's note instead)
-                             "sbom_floor_met": resolved > 0})
+                             # and an ingested CycloneDX document must be conformant to its official schema (rule 2/3)
+                             "sbom_floor_met": resolved > 0 and (source.get("format") != "cyclonedx-json" or
+                                                                 str(source.get("schema_check", "")).startswith("conformant to "))})
         except Exception:
             if created:                          # undo this call's copy — unless a concurrent record already relies on it (round 11, reviewer 2)
                 with self._lock:

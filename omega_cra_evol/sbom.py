@@ -457,7 +457,107 @@ def _cdx_top_level_valid(d: Dict[str, Any]) -> None:
         raise ValueError(f"CycloneDX malformed: member outside the {spec} schema: " + ", ".join(unknown)[:120])
 
 
-def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None) -> SBOMRecord:
+# Schema check of an ingested CycloneDX document (CHANGELOG, Unreleased, rules 1-4). The official schemas of
+# CycloneDX/specification at 6470e34 ship in data/cyclonedx/ (SHA-256 in SOURCES.txt). jsonschema is the optional extra
+# [schema]: it skips a `format` it has no checker for without saying so, so every format the schemas use must have one.
+_CDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cyclonedx")
+_CDX_SCHEMA_VERSIONS = ("1.2", "1.3", "1.4", "1.5", "1.6", "1.7")
+_FORMATS_NEEDED = ("date", "date-time", "idn-email", "iri-reference", "uri")
+_VALIDATORS: Dict[str, Any] = {}
+
+
+def _jsonschema():
+    import jsonschema                      # noqa: F401  (the extra [schema])
+    from referencing import Registry, Resource
+    return jsonschema, Registry, Resource
+
+
+def _cdx_validator(spec: str):
+    """(validator, None) or (None, reason it cannot run)."""
+    if spec in _VALIDATORS:
+        return _VALIDATORS[spec], None
+    try:
+        jsonschema, Registry, Resource = _jsonschema()
+    except ImportError as e:
+        return None, f"jsonschema is not installed ({e}); install omega-cra-evol[schema]"
+    checker = jsonschema.Draft7Validator.FORMAT_CHECKER
+    missing = [f for f in _FORMATS_NEEDED if f not in checker.checkers]
+    if missing:
+        return None, ("jsonschema cannot check the format(s) " + ", ".join(missing) +
+                      "; install omega-cra-evol[schema] (jsonschema[format-nongpl] >= 4.25)")
+    docs = {}
+    for name in sorted(os.listdir(_CDX_SCHEMA_DIR)):
+        if name.endswith(".schema.json"):
+            with open(os.path.join(_CDX_SCHEMA_DIR, name), "rb") as fh:
+                docs[name] = json.loads(fh.read().decode("utf-8"))
+    pairs = [(n, Resource.from_contents(d)) for n, d in docs.items()]
+    pairs += [(d["$id"], Resource.from_contents(d)) for d in docs.values() if isinstance(d.get("$id"), str)]
+    # uniqueItems in linear time (jsonschema compares objects pairwise: 4,000 components took 16 s, 20,000 minutes),
+    # with the same equality as jsonschema (_utils.equal: true is not 1, 1 equals 1.0, objects and arrays by value)
+    cls = jsonschema.validators.extend(jsonschema.Draft7Validator, {"uniqueItems": _unique_items})
+    try:
+        v = cls(docs[f"bom-{spec}.schema.json"], registry=Registry().with_resources(pairs), format_checker=checker)
+    except TypeError as e:                 # a jsonschema older than 4.18 (no `registry`) next to a separate `referencing`
+        return None, f"jsonschema too old ({e}); install omega-cra-evol[schema] (jsonschema[format-nongpl] >= 4.25)"
+    _VALIDATORS[spec] = v
+    return v, None
+
+
+def _uniq_key(x: Any) -> Any:
+    if isinstance(x, bool):
+        return ("b", x)
+    if isinstance(x, (int, float)):
+        return ("n", x)                    # 1 and 1.0 share hash and equality, as in jsonschema
+    if isinstance(x, str):
+        return ("s", x)
+    if isinstance(x, list):
+        return ("l", tuple(_uniq_key(i) for i in x))
+    if isinstance(x, dict):
+        return ("d", frozenset((k, _uniq_key(v)) for k, v in x.items()))
+    if x is None:
+        return ("z", None)
+    raise TypeError("not a JSON value")    # not from a JSON parser: jsonschema's own comparison decides
+
+
+def _unique_items(validator, ui, instance, schema):
+    if ui and validator.is_type(instance, "array"):
+        from jsonschema.exceptions import ValidationError
+        try:
+            first: Dict[Any, int] = {}
+            for i, e in enumerate(instance):
+                j = first.setdefault(_uniq_key(e), i)
+                if j != i:                 # the reason first: jsonschema's message starts with the whole array
+                    yield ValidationError(f"has non-unique elements (items {j} and {i} are equal)")
+                    return
+        except TypeError:
+            from jsonschema._utils import uniq
+            if not uniq(instance):
+                yield ValidationError(f"{instance!r} has non-unique elements")
+
+
+def cyclonedx_schema_check(d: Any) -> Tuple[str, str]:
+    """("conformant" | "not_conformant" | "not_checked", the text recorded in source.schema_check)."""
+    spec = d.get("specVersion") if isinstance(d, dict) else None
+    if not isinstance(spec, str) or spec not in _CDX_SCHEMA_VERSIONS:
+        return "not_checked", f"not checked: no official schema here for specVersion {spec!r} (1.2 to 1.7)"
+    v, why = _cdx_validator(spec)
+    if v is None:
+        return "not_checked", "not checked: " + why
+    from jsonschema.exceptions import best_match
+    from .canonical import deep_recursion
+    try:
+        with deep_recursion():             # a document the parser accepts (nesting <= 512) must be checkable too
+            err = best_match(v.iter_errors(d))
+    except RecursionError:
+        raise ValueError("CycloneDX malformed: nested too deep for the schema check") from None
+    if err is None:
+        return "conformant", f"conformant to bom-{spec}.schema.json"
+    where = "/".join(str(x) for x in err.absolute_path) or "(document)"
+    return "not_conformant", f"not conformant to bom-{spec}.schema.json at {where}: {err.message}"[:300]
+
+
+def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
+                        allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest a CycloneDX JSON (1.2 … 1.7) from ANY generator: components are walked recursively (a generator may
     nest `components[].components`), a component without a name is skipped (an unknown `type` is indexed as
     "library" — the declared value survives in `source.component_types` and in the stored bytes), a malformed document raises. The record's
@@ -467,6 +567,9 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
     raw, d = _load_document(path, raw)
     if not isinstance(d, dict) or d.get("bomFormat") != "CycloneDX":
         raise ValueError("CycloneDX malformed: not a JSON object with bomFormat 'CycloneDX'")
+    schema_state, schema_text = cyclonedx_schema_check(d)
+    if schema_state == "not_conformant" and not allow_nonconformant:   # rule 1: refused, nothing recorded
+        raise ValueError("CycloneDX " + schema_text + " (--allow-nonconformant records it, never as floor met)")
     md = d.get("metadata")
     if isinstance(md, dict) and md.get("component") and not isinstance(md["component"], dict):
         raise ValueError("CycloneDX malformed: 'metadata.component' must be an object")
@@ -543,7 +646,8 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
               "serial_number": _s(d.get("serialNumber")), "components_declared": declared, "components_nested": nested,
               "duplicates_merged": declared - len(dedup(comps)), "dependency_edges": len(edges),
               "dangling_edges": len(dangling), "dangling_refs": dangling[:10],
-              "dependencies_declared": len(deps), "component_types": dict(sorted(types.items()))}
+              "dependencies_declared": len(deps), "component_types": dict(sorted(types.items())),
+              "schema_check": schema_text}
     if components_absent:
         source["components_absent"] = True
     source.update(_fingerprint_bytes(raw, path))
@@ -760,8 +864,8 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
 
 def reingest(raw: bytes, path: str, fmt: str, product_id: str, product_version: str) -> SBOMRecord:
     """The same ingest function, on bytes already in hand (the locker re-derives the index from the bytes it stores)."""
-    if fmt == "cyclonedx-json":
-        return sbom_from_cyclonedx(path, product_id, product_version, raw=raw)
+    if fmt == "cyclonedx-json":     # the refusal was decided at ingest; here schema_check must come out the same
+        return sbom_from_cyclonedx(path, product_id, product_version, raw=raw, allow_nonconformant=True)
     if fmt in ("spdx-json", "spdx-jsonld"):
         return sbom_from_spdx(path, product_id, product_version, raw=raw)
     raise ValueError(f"unknown source format {fmt!r}")

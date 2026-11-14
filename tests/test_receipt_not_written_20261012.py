@@ -194,7 +194,11 @@ class ReceiptNotWritten(unittest.TestCase):
         self.check("verify 77", env_cmd, 77)
 
     def test_sbom_valid_and_invalid(self):
-        self.check("sbom ok", self.py("sbom", *self.ledger_args(), "--from-cyclonedx", SYFT, "--no-store-source"), 0, setup=self.fresh_ledger)
+        from omega_cra_evol.sbom import cyclonedx_schema_check
+        ready = cyclonedx_schema_check({"bomFormat": "CycloneDX", "specVersion": "1.6"})[0] != "not_checked"
+        # without the extra [schema] the document is recorded as not checked and never meets the floor (rule 2): exit 1
+        self.check("sbom ok", self.py("sbom", *self.ledger_args(), "--from-cyclonedx", SYFT, "--no-store-source"), 0 if ready else 1,
+                   setup=self.fresh_ledger)
         self.check("sbom bad", self.py("sbom", *self.ledger_args(), "--installed", "nonexistentpkgxyz"), 1, setup=self.fresh_ledger)
 
     def test_sbom_record_kept_when_receipt_lost(self):

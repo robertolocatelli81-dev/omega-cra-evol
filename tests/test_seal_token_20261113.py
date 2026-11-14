@@ -130,7 +130,10 @@ class SealCLI(unittest.TestCase):
         led = os.path.join(d, "l.jsonl")
         sb = os.path.join(ROOT, "tests", "fixtures", "real_tools", "syft-1.52.0_cyclonedx-1.7.json")
         base = ["--ledger", led, "--product", "p", "--version", "1"]
-        self.assertEqual(self.run_cra("sbom", *base, "--from-cyclonedx", sb, cwd=d).returncode, 0)
+        # recorded either way; exit 1 when the schema check cannot run here (no extra [schema], CHANGELOG Unreleased rule 2)
+        from omega_cra_evol.sbom import cyclonedx_schema_check
+        ready = cyclonedx_schema_check({"bomFormat": "CycloneDX", "specVersion": "1.6"})[0] != "not_checked"
+        self.assertEqual(self.run_cra("sbom", *base, "--from-cyclonedx", sb, cwd=d).returncode, 0 if ready else 1)
         r = self.run_cra("pack", *base, "--out", os.path.join(d, "pack.json"), cwd=d)
         ps = json.loads(r.stdout)["pack_sha3"]
         n0 = _lines(led)

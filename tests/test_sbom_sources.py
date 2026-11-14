@@ -27,6 +27,9 @@ from omega_cra_evol.verify_pack import verify_pack  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 REAL = sorted(glob.glob(os.path.join(HERE, "fixtures", "real_tools", "*.json")))
 SCHEMAS = os.path.join(os.path.dirname(HERE), "spec", "schemas")
+# the schema check runs only with the extra [schema]; without it a document is recorded "not checked" (rule 2)
+from omega_cra_evol.sbom import cyclonedx_schema_check  # noqa: E402
+SCHEMA_READY = cyclonedx_schema_check({"bomFormat": "CycloneDX", "specVersion": "1.6"})[0] != "not_checked"
 
 
 def ingest(path):
@@ -102,8 +105,8 @@ class TestRealGenerators(unittest.TestCase):
         a = ingest(os.path.join(HERE, "fixtures", "real_tools", "cdxgen-12.8.4_cyclonedx-1.6.json"))
         b = ingest(os.path.join(HERE, "fixtures", "real_tools", "cdxgen-12.8.4_cyclonedx-1.7.json"))
         self.assertEqual(a.components, b.components)
-        self.assertEqual({k: v for k, v in a.source.items() if k not in ("spec_version", "sha256", "size_bytes", "file", "serial_number")},
-                         {k: v for k, v in b.source.items() if k not in ("spec_version", "sha256", "size_bytes", "file", "serial_number")})
+        self.assertEqual({k: v for k, v in a.source.items() if k not in ("spec_version", "sha256", "size_bytes", "file", "serial_number", "schema_check")},
+                         {k: v for k, v in b.source.items() if k not in ("spec_version", "sha256", "size_bytes", "file", "serial_number", "schema_check")})
 
 
 class TestIngestRules(unittest.TestCase):
@@ -132,13 +135,21 @@ class TestIngestRules(unittest.TestCase):
     def test_duplicates_merged_are_counted_not_hidden(self):
         c = {"type": "library", "name": "actions/checkout", "version": "v4", "purl": "pkg:github/actions/checkout@v4"}
         p = self._doc("d.json", {"bomFormat": "CycloneDX", "specVersion": "1.7", "components": [c, dict(c), dict(c)]})
-        r = sbom_from_cyclonedx(p, "x", "1")
+        # not conformant to its schema (CHANGELOG Unreleased, rule 1): read with allow_nonconformant, the index rule is what is tested
+        if SCHEMA_READY:
+            with self.assertRaisesRegex(ValueError, "not conformant to bom-1.7.schema.json at components"):   # uniqueItems
+                sbom_from_cyclonedx(p, "x", "1")
+        r = sbom_from_cyclonedx(p, "x", "1", allow_nonconformant=True)
         self.assertEqual((len(r.components), r.source["components_declared"], r.source["duplicates_merged"]), (1, 3, 2))
 
     def test_unknown_type_and_malformed_hash_are_not_trusted(self):
         p = self._doc("u.json", {"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
             {"type": "thing", "name": "a", "version": "1", "hashes": [{"alg": "SHA-256", "content": "zz"}]}]})
-        c = sbom_from_cyclonedx(p, "x", "1").components[0]
+        # not conformant to its schema (CHANGELOG Unreleased, rule 1): read with allow_nonconformant, the index rule is what is tested
+        if SCHEMA_READY:
+            with self.assertRaisesRegex(ValueError, "not conformant to bom-1.6.schema.json at components/0/type"):
+                sbom_from_cyclonedx(p, "x", "1")
+        c = sbom_from_cyclonedx(p, "x", "1", allow_nonconformant=True).components[0]
         self.assertEqual((c.type, c.sha256), ("library", ""))
 
     def test_not_cyclonedx_raises(self):
@@ -194,7 +205,13 @@ class TestIngestRules(unittest.TestCase):
                      {"specVersion": "1.4", "version": 1, "vulnerabilities": []}, {"specVersion": "1.5"}, {"specVersion": "1.5", "formulation": []},
                      {"specVersion": "1.6", "definitions": {}, "declarations": {}}, {"specVersion": "1.7", "citations": []}, {"specVersion": "1.4", "version": 1, "signature": {}},
                      {"specVersion": "1.6", "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json"}):
-            r = sbom_from_cyclonedx(self._doc("t.json", {"bomFormat": "CycloneDX", **good}), "x", "1")
+            # {"signature": {}} matches both branches of the schema's oneOf: not conformant (rule 1), recorded only on request
+            r = sbom_from_cyclonedx(self._doc("t.json", {"bomFormat": "CycloneDX", **good}), "x", "1",
+                                    allow_nonconformant="signature" in good)
+            if SCHEMA_READY:
+                self.assertEqual(r.source["schema_check"].startswith("not conformant"), "signature" in good, repr(good))
+            else:
+                self.assertTrue(r.source["schema_check"].startswith("not checked: "), repr(good))
             self.assertEqual(r.components, [], repr(good))
             self.assertIs(r.source["components_absent"], True)
         # the rule is the absent case only: with `components` a document reads as before
@@ -202,8 +219,8 @@ class TestIngestRules(unittest.TestCase):
         self.assertEqual(len(r.components), 1)
 
     def test_legacy_tools_list_still_names_the_generator(self):
-        p = self._doc("l.json", {"bomFormat": "CycloneDX", "specVersion": "1.4", "metadata": {"tools": [{"vendor": "anchore", "name": "syft", "version": "0.90.0"}]},
-                                 "components": [{"type": "library", "name": "a", "version": "1"}]})
+        p = self._doc("l.json", {"bomFormat": "CycloneDX", "specVersion": "1.4", "version": 1, "metadata": {"tools": [{"vendor": "anchore", "name": "syft", "version": "0.90.0"}]},
+                                 "components": [{"type": "library", "name": "a", "version": "1"}]})   # `version` is required in 1.4
         self.assertEqual((sbom_from_cyclonedx(p, "x", "1").source["generator"], sbom_from_cyclonedx(p, "x", "1").source["generator_version"]), ("syft", "0.90.0"))
 
 
@@ -340,7 +357,7 @@ class TestSourceStore(unittest.TestCase):
         with open(p, "w") as f:
             json.dump({"bomFormat": "CycloneDX", "specVersion": "1.7", "metadata": {"component": {"type": "firmware", "name": "fw", "version": "1"}},
                        "components": [{"type": "library", "name": "a", "version": "9" * 1100}]}, f)
-        r = sbom_from_cyclonedx(p, "tiny-cra-sample", "1.0.0")
+        r = sbom_from_cyclonedx(p, "tiny-cra-sample", "1.0.0", allow_nonconformant=True)   # over the schema's maxLength (rule 1)
         self.assertEqual(len(r.components[0].version), SCHEMA_TEXT_MAX)                      # bounded to the schema's maxLength, never exported invalid
         self.assertEqual(r.product_type, "firmware")                                          # the generator's metadata.component.type, not a default
         self.assertEqual(r.to_cyclonedx_min("1.7")["metadata"]["component"]["type"], "firmware")
@@ -429,7 +446,7 @@ class TestSourceStore(unittest.TestCase):
         cdx = os.path.join(self.d, "tc_cdx.json")
         with open(cdx, "w") as f:
             json.dump({"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{"name": {"x": 1}, "version": "1"}, {"name": "ok", "version": [1], "purl": {"p": 1}, "type": 3}]}, f)
-        r = sbom_from_cyclonedx(cdx, "tiny-cra-sample", "1.0.0")
+        r = sbom_from_cyclonedx(cdx, "tiny-cra-sample", "1.0.0", allow_nonconformant=True)   # not conformant (rule 1)
         self.assertEqual([(c.name, c.version, c.purl, c.type) for c in r.components], [("ok", "", "", "library")])
 
     def test_store_never_overwrites_different_bytes(self):

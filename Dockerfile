@@ -1,15 +1,18 @@
 # The omega-cra-evol container image (ghcr.io/robertolocatelli81-dev/omega-cra-evol:<version>), built by
 # .github/workflows/container.yml from the wheel of a GitHub Release, checked there against the release's SHA256SUMS.
-# Base image pinned by digest (python:3.12-slim, multi-arch index, read on 13/11/2026); the [sign] extra pinned by hash.
+# Base image pinned by digest (python:3.12-slim, multi-arch index, read on 13/11/2026); the [sign] and [schema] extras pinned by hash.
 FROM docker.io/library/python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 ARG CRA_VERSION
 COPY dist/omega_cra_evol-${CRA_VERSION}-py3-none-any.whl /tmp/dist/
 COPY container/requirements-sign.txt /tmp/requirements-sign.txt
+COPY container/requirements-schema.txt /tmp/requirements-schema.txt
 RUN test -n "${CRA_VERSION}" \
  && python -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --require-hashes --only-binary=:all: -r /tmp/requirements-sign.txt \
+ && python -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --require-hashes --only-binary=:all: -r /tmp/requirements-schema.txt \
  && python -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --no-deps --no-index /tmp/dist/omega_cra_evol-${CRA_VERSION}-py3-none-any.whl \
- && rm -rf /tmp/dist /tmp/requirements-sign.txt \
+ && rm -rf /tmp/dist /tmp/requirements-sign.txt /tmp/requirements-schema.txt \
+ && python -c "from omega_cra_evol.sbom import cyclonedx_schema_check as c; s = c({'bomFormat': 'CycloneDX', 'specVersion': '1.6'}); assert s[0] == 'conformant', s" \
  && useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin cra \
  && test "$(cra --version)" = "omega-cra-evol ${CRA_VERSION}" \
  && test "$(omega-cra-evol --version)" = "omega-cra-evol ${CRA_VERSION}"

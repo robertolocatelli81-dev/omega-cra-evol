@@ -144,12 +144,17 @@ virtual environments):
 ```
 pip install --index-url https://robertolocatelli81-dev.github.io/pypi/ omega-cra-evol      # wheel of the GitHub Release
 pip install ".[sign]"    # from a checkout; no runtime dependency, [sign] adds Ed25519 signatures / signed tips / seals
+pip install ".[schema]"  # checks an ingested CycloneDX document against the official schema of its version
 ```
+
+Without `[schema]` (`jsonschema[format-nongpl]`) `cra sbom --from-cyclonedx` records the document as `schema_check: not
+checked`, and the record never meets the SBOM floor; a document that fails its official schema is refused unless
+`--allow-nonconformant` is given (then recorded, marked, never floor met). See the CHANGELOG, Unreleased.
 
 The command is `cra` (also installed as `omega-cra-evol`, the name `pipx run` and `uvx` look for); the Python package is
 `omega_cra_evol`.
 
-Container image (Linux x86_64, `[sign]` included, build provenance attested by the release workflow):
+Container image (Linux x86_64, `[sign]` included, and `[schema]` in the images of the releases after 0.10.0; build provenance attested by the release workflow):
 
 ```
 gh attestation verify oci://ghcr.io/robertolocatelli81-dev/omega-cra-evol:0.10.0 --repo robertolocatelli81-dev/omega-cra-evol \

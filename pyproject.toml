@@ -17,6 +17,7 @@ dependencies = []
 
 [project.optional-dependencies]
 sign = ["cryptography>=41"]
+schema = ["jsonschema[format-nongpl]>=4.25"]   # 4.25: the first whose [format-nongpl] checks iri-reference (rfc3987-syntax)
 
 [project.scripts]
 cra = "omega_cra_evol.cli:main"
@@ -29,4 +30,4 @@ Homepage = "https://github.com/robertolocatelli81-dev/omega-cra-evol"
 packages = ["omega_cra_evol", "cra_evidence"]   # cra_evidence: the earlier import name, a deprecated alias (removed not before 2027-03-31)
 
 [tool.setuptools.package-data]
-omega_cra_evol = ["data/*.json"]
+omega_cra_evol = ["data/*.json", "data/cyclonedx/*.json", "data/cyclonedx/LICENSE", "data/cyclonedx/SOURCES.txt"]
