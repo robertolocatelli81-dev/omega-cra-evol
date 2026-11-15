@@ -121,18 +121,43 @@ class TestPins(unittest.TestCase):
         self.assertRegex(d, r"(?m)^USER 10001$")
 
 
+def copies_not_admitted(dockerfile, dockerignore):
+    """sources of COPY/ADD in the Dockerfile that the .dockerignore (deny all, then `!` exceptions) keeps out"""
+    import fnmatch
+    allow = [l[1:] for l in dockerignore_rules(dockerignore) if l.startswith("!")]
+    out = []
+    for line in dockerfile.splitlines():
+        parts = line.split()
+        if parts and parts[0].upper() in ("COPY", "ADD") and not any(p.startswith("--from") for p in parts[1:]):
+            for src in [p for p in parts[1:-1] if not p.startswith("--")]:
+                src = src.replace("${CRA_VERSION}", "0.0.0")
+                if not any(fnmatch.fnmatchcase(src, a) for a in allow):
+                    out.append(src)
+    return out
+
+
 def dockerignore_rules(text):
     return [l for l in text.splitlines() if l and not l.startswith("#")]
 
 
 class TestBuildContext(unittest.TestCase):
-    ALLOWED = ["*", "!dist/omega_cra_evol-*-py3-none-any.whl", "!container/requirements-sign.txt"]
+    ALLOWED = ["*", "!dist/omega_cra_evol-*-py3-none-any.whl", "!container/requirements-sign.txt",
+               "!container/requirements-schema.txt"]
 
     def test_dockerignore_admits_only_the_wheel_and_the_requirements(self):
         self.assertEqual(dockerignore_rules(read(".dockerignore")), self.ALLOWED)
 
     def test_positive_control(self):
         self.assertNotEqual(dockerignore_rules(read(".dockerignore") + "!scripts\n"), self.ALLOWED)
+
+    def test_every_file_the_dockerfile_copies_enters_the_context(self):
+        # 0.11.1: the image of 0.11.0 did not build — the Dockerfile copied container/requirements-schema.txt, which
+        # .dockerignore did not admit; the list above was checked, its agreement with the Dockerfile was not
+        self.assertEqual(copies_not_admitted(read("Dockerfile"), read(".dockerignore")), [])
+
+    def test_every_file_the_dockerfile_copies_positive_control(self):
+        di = read(".dockerignore").replace("!container/requirements-schema.txt\n", "")
+        self.assertEqual(copies_not_admitted(read("Dockerfile"), di), ["container/requirements-schema.txt"])
 
 
 def workflow_order_problems(w):

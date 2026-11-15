@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.1 — 2026-11-15 — the container image of the release builds
+
+The image of 0.11.0 was not published: its build (`.github/workflows/container.yml`, run 43717002856) stopped at
+`COPY container/requirements-schema.txt`, because `.dockerignore` lets into the build context only the files it names and
+did not name that file, added to the Dockerfile in 0.11.0 to install the `[schema]` extra. `.dockerignore` now names
+it; built locally from this commit with the 0.11.0 wheel, the image prints `omega-cra-evol 0.11.0` for both commands
+and imports jsonschema and cryptography. The Python package is unchanged from 0.11.0 but for the version number; the
+action's default image and the README's container commands name 0.11.1.
+
 ## 0.11.0 — 2026-11-15 — CycloneDX and SPDX documents are checked against the official schema of their version
 
 ### SPDX (rules written before the code, 15/11/2026)

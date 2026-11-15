@@ -2,3 +2,4 @@
 *
 !dist/omega_cra_evol-*-py3-none-any.whl
 !container/requirements-sign.txt
+!container/requirements-schema.txt
