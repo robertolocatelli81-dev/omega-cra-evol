@@ -217,9 +217,10 @@ class LongTermEvidence:
         if not self.records:
             return {"ok": False, "reasons": ["empty chain (no archive timestamp)"], "temporal_trust": "n/a"}
         for i, rec in enumerate(self.records):   # shape first: a malformed record is a reason, never a KeyError
-            if not isinstance(rec, dict) or not all(isinstance(rec.get(k), str) for k in ("alg", "pub", "sig", "t")):
-                return {"ok": False, "reasons": [f"record {i}: malformed (alg/pub/sig/t must be strings)"], "temporal_trust": "n/a",
-                        "chain_len": len(self.records)}
+            if not isinstance(rec, dict) or not all(isinstance(rec.get(k), str) for k in ("alg", "pub", "sig", "t")) \
+                    or not isinstance(rec.get("hash", DEFAULT_HASH), str):   # NEMESIS 15/11/2026: a list was a TypeError
+                return {"ok": False, "reasons": [f"record {i}: malformed (alg/pub/sig/t, and hash if present, must be strings)"],
+                        "temporal_trust": "n/a", "chain_len": len(self.records)}
             try:
                 float(rec["t"])
             except ValueError:

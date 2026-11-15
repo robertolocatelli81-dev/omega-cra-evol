@@ -155,10 +155,10 @@ class TestAppendState(unittest.TestCase):
                 lg.append({"i": i}, ts=TS)
             with mock.patch.object(L, "parse_line", wraps=L.parse_line) as pl:
                 lg.append({"i": "next"}, ts=TS)
-                self.assertEqual(pl.call_count, 0)     # nothing re-parsed: 201 lines are behind the checked digest
-                os.remove(p + L.STATE_SUFFIX)
+                self.assertEqual(pl.call_count, 2)     # only the first and last lines, checked against the state
+                os.remove(p + L.STATE_SUFFIX)           # (NEMESIS 15/11/2026): 199 lines behind the checked digest
                 lg.append({"i": "after"}, ts=TS)
-                self.assertEqual(pl.call_count, 201)   # no state: the 201 lines are read, as before
+                self.assertEqual(pl.call_count, 2 + 201)   # no state: the 201 lines are read, as before
             v = L.Ledger(p).verify(); self.assertTrue(v["chain_ok"], v); self.assertEqual(v["entries"], 202)
         finally:
             shutil.rmtree(d)

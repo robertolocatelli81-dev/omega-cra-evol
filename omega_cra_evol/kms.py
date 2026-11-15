@@ -66,8 +66,11 @@ class KMSSigner:
         ep = endpoint or os.environ.get("AWS_KMS_ENDPOINT")
         if ep:
             u = urllib.parse.urlsplit(ep)
-            if u.scheme != "https" and (u.hostname or "").lower() not in ("127.0.0.1", "localhost", "::1"):
-                raise ValueError("AWS KMS custom endpoint must be https (or loopback)")
+            loop = (u.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+            # NEMESIS 15/11/2026: any scheme towards a loopback host passed (file://localhost/..., ftp://localhost/...),
+            # as in cryptovalid-opencore before its 0.25.0 rule: https, or plain http to a loopback host, and nothing else
+            if not (u.scheme == "https" and u.hostname) and not (u.scheme == "http" and loop):
+                raise ValueError("AWS KMS custom endpoint must be https (or http to a loopback host)")
         self._endpoint = ep or f"https://{self._host}"
         self.public_key_hex = self._read_pubkey()
 

@@ -20,8 +20,14 @@
   new function with `digest_only_binding`. Measured on 15/11/2026: freetsa.org and timestamp.digicert.com answer
   `Rejected` to a SHA3-256 query and `Granted` to a SHA-256 one, so the SHA3-256-only shape of 0.9.0–0.11.1 could not
   be used with them; SHA-256 is admitted. The tests that injected `lambda r: True` (`test_council_r2.py`,
-  `test_council_r3.py`) now seal with a TSA made on the machine and inject the new function; 12 of 12 mutants of the
-  new lines are killed. Proposed by Athena's review of 15/11/2026.
+  `test_council_r3.py`) now seal with a TSA made on the machine and inject the new function; 12 of 12 mutants chosen
+  by hand on the new lines are killed. Proposed by Athena's review of 15/11/2026. The NEMESIS review of 15/11/2026
+  closed four gaps before the release: an anchored record with a field outside the list of §5 step 3 (`unknown_field`),
+  a `token_sha3` that is not the token's digest (`token_sha3_mismatch`), or a `t` written in another form than §3's
+  string (`" 1.0"`, `"+1.0"`, `"1"`) was verified; a pinned file that is not shaped as a certificate made every token
+  `signature_invalid` (now `ValueError`, exit 2), and an unreadable one was a traceback; `cra seal --tsa-cert` recorded
+  a seal it then refused (exit 1: a retry recorded it twice) — it now checks the token first and records nothing on a
+  refusal, and refuses `--tsa-cert` without `--ts-source rfc3161` (exit 2).
 - **Supply chain of the release, measurable by third parties.** `release-build.yml` builds the wheel and the sdist on a
   GitHub-hosted runner from the tag, with the build front-end and setuptools pinned by hash
   (`.github/build-requirements.txt`, `pip install --require-hashes`, `python -m build --no-isolation`), and signs SLSA
@@ -34,6 +40,10 @@
   `pyproject.toml` (setuptools ≥ 77, which builds wheels itself: `wheel` is no longer a build requirement); the
   licence classifier, which PEP 639 does not allow next to an expression, is removed; the wheel's METADATA carries
   `License-Expression` and the licence file.
+- **The AWS KMS custom endpoint is https, or http to a loopback host, and nothing else** (NEMESIS review, 15/11/2026):
+  the check let any scheme through towards a loopback host (`file://localhost/...`, `ftp://localhost/...`), as
+  cryptovalid-opencore's before its rule of 15/11/2026. A record of a seal whose `hash` is not a string is now
+  `malformed` in `LongTermEvidence.verify` (it raised TypeError).
 - **Behind a corporate proxy.** A loopback AWS KMS endpoint (a local emulator) is reached directly: with `HTTP_PROXY` set,
   the signed request went to the proxy, which cannot reach this host's loopback. AWS itself still goes through the
   environment proxy. The test of `srp_glossary.fetch` excludes its loopback server from the proxy (`no_proxy`): it
@@ -50,14 +60,16 @@
   next append hashes those bytes again and, only if they are unchanged byte for byte, parses just the lines added
   since; otherwise — a changed, removed or added byte, a smaller file, a state file missing, malformed or of another
   version — it reads the whole ledger with the same refusals as before. The state file is a cache, not evidence: no
-  verifier reads it, and deleting it costs one full read. Measured on one machine: an append to a 10 000-entry
+  verifier reads it, and deleting it costs one full read. The state is used only if the ledger's first and last
+  entries agree with its `first`, `last` and `n` (NEMESIS review, 15/11/2026: a state file with the right SHA-256 and
+  another `last` made the writer append an entry that broke the chain for good). Measured on one machine: an append to a 10 000-entry
   ledger took 444–529 ms and now 10–26 ms; to a 50 000-entry ledger 2.2–3.7 s and now 30–43 ms (the first append
   after the change still reads everything). `tests/test_ledger_append_state_20261115.py` compares, on 40 generated
   sequences of 60 steps with eleven kinds of outside changes to the ledger and to the state file, every append with
   a full read of the same file: 0 differences; with the SHA-256 check removed the same generator finds 162.
-- **The sdist is complete and reproducible.** `MANIFEST.in` puts in it every file git tracks (before: the package
-  and 49 test files, without fixtures, specifications, examples, scripts or verifiers), and the whole suite runs
-  from the unpacked sdist (531 tests, 1 skipped). `release-build.yml` sets `SOURCE_DATE_EPOCH` to the commit time and
+- **The sdist is complete and reproducible.** `MANIFEST.in` puts in it every file git tracks (the 0.11.1 sdist held
+  the package and its 47 test files, 105 entries, without fixtures, specifications, examples, scripts or verifiers),
+  and the whole suite runs from the unpacked sdist. `release-build.yml` sets `SOURCE_DATE_EPOCH` to the commit time and
   rewrites the sdist with `scripts/repro_sdist.py` (sorted members, fixed times and owners, no gzip time; the
   content is checked unchanged): two builds of the same commit give the same sdist and the same wheel.
 - **The binaries the CI downloads are checked by SHA-256** before they run: gitleaks 8.24.3 against the checksum file
@@ -68,7 +80,7 @@
 - **No commercial offer.** The README no longer offers evaluation pilots or a commercial licence: none is offered at
   present; the project is free and open-source software, provided without warranty as the licence states.
 - **The public API is declared** (`API.md`): three tiers — stable (the twelve names of `omega_cra_evol.__all__`),
-  provisional (the `__all__` of each module, now a literal list in all 19 modules), private (everything else); SemVer
+  provisional (the `__all__` of each module, now a literal list in all 20 modules), private (everything else); SemVer
   and the deprecation rule for the 0.x line; the conditions for 1.0. The stable and provisional names are fully
   annotated; `tests/test_api_surface_20261115.py` compares the interface with a versioned snapshot
   (`tests/data/api_surface.txt`, regenerated with `scripts/api_surface.py`) and lets the private signatures without

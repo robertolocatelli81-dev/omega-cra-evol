@@ -68,16 +68,24 @@ reason, written to `fn.log`, and the function returns `False`:
 1. `record_not_in_chain` — the record is not one of `lte.records`;
 2. `ts_source_not_rfc3161` — `asserted` or `ots`: not attested by this function;
 3. `digest_only_binding` — a `rfc3161` record without `anchor` (sealed 0.9.0–0.11.1); `anchor_unknown` — another value;
+   `unknown_field` — a field outside the closed list `alg`, `anchor`, `ephemeral_key`, `hash`, `pub`, `rehash`, `sig`,
+   `t`, `token_b64`, `token_sha3`, `ts_source` (a field the token does not stamp is never accepted with the record);
 4. `token_missing`, `token_not_base64`, `token_malformed` — no token, not strict base64, not an RFC 3161 token by the
    shape check of 0.9.0 or with a `genTime` outside §3's form;
 5. `imprint_mismatch` — the token's hash algorithm is not one of §2's, or its hashedMessage is not §2's for this record;
-6. `t_not_gen_time` — `t` is not §3's value;
+6. `t_not_gen_time` — `t` is not the string §3 defines (`repr` of the float of genTime: `" 1.0"`, `"+1.0"`, `"1"` for
+   `"1.0"` are refused, though `float()` reads them as the same number);
 7. `signature_invalid` — the token's CMS signature does not verify (`openssl cms -verify -noverify`, with the pinned
    certificates as candidate signers);
 8. `not_issued_by_pinned_tsa` — `openssl ts -verify` against the pinned certificates (`-partial_chain`, validity at
    `genTime` with `-attime`) does not answer `Verification: OK`.
 
-The function returns `True` only when all eight pass. openssl absent, or present and not able to run, ended by a
+9. `token_sha3_mismatch` — `token_sha3` is absent or not the SHA3-256 hex of the `token_b64` string.
+
+The function returns `True` only when all nine pass. The pinned certificates are checked before any record: each
+PEM block or DER item must have the shape of an X.509 certificate (RFC 5280 §4.1: a SEQUENCE of two SEQUENCEs and a BIT
+STRING), and a path must be a readable regular file; otherwise `ValueError` and no function is made (a pin openssl
+cannot load would refuse every token as `signature_invalid`). openssl absent, or present and not able to run, ended by a
 signal or not answering, is not a refusal: the function raises `TimeAnchorNotRun` (an `OSError`), and no verdict is
 given. `verify` reports `temporal_trust: "verified"` only when the function accepted every record (unchanged).
 

@@ -17,6 +17,7 @@ __all__ = ["REASONS", "TimeAnchorNotRun", "make_timestamp_trust_fn"]
 
 import base64
 import binascii
+import hashlib
 import os
 import shutil
 import subprocess  # nosec B404 - openssl only, fixed arguments, no shell
@@ -27,9 +28,12 @@ from .longterm import ANCHOR, LongTermEvidence
 from .rfc3161_token import (OID_SHA256, OID_SHA3_256, TokenRefused, gen_time_seconds, rfc3161_tstinfo,
                             timestamp_token_der)
 
-REASONS = ("record_not_in_chain", "ts_source_not_rfc3161", "digest_only_binding", "anchor_unknown", "token_missing",
-           "token_not_base64", "token_malformed", "imprint_mismatch", "t_not_gen_time", "signature_invalid",
-           "not_issued_by_pinned_tsa")
+REASONS = ("record_not_in_chain", "ts_source_not_rfc3161", "digest_only_binding", "anchor_unknown", "unknown_field",
+           "token_missing", "token_not_base64", "token_malformed", "imprint_mismatch", "t_not_gen_time",
+           "signature_invalid", "not_issued_by_pinned_tsa", "token_sha3_mismatch")
+# spec/TIME_ANCHOR.md §2, §5 step 3: the fields an anchored record may carry (closed: anything else is refused)
+_RECORD_FIELDS = frozenset(("alg", "anchor", "ephemeral_key", "hash", "pub", "rehash", "sig", "t", "token_b64", "token_sha3",
+                           "ts_source"))
 _HASH_NAMES = {OID_SHA256: "sha256", OID_SHA3_256: "sha3-256"}
 
 
@@ -46,20 +50,63 @@ def _pins_pem(tsa_certs: Sequence[Union[str, bytes]]) -> bytes:
         if isinstance(c, str):
             if not os.path.isfile(c):
                 raise ValueError(f"tsa_certs: {c!r} is not a readable file")
-            with open(c, "rb") as f:
-                c = f.read()
+            try:
+                with open(c, "rb") as f:
+                    c = f.read()
+            except OSError as e:   # NEMESIS 15/11/2026: an unreadable file was a PermissionError (a traceback in cra seal)
+                raise ValueError(f"tsa_certs: cannot read {c!r}: {e.strerror or e}") from None
         if not isinstance(c, (bytes, bytearray)) or not c:
             raise ValueError("tsa_certs: an entry is neither a path nor certificate bytes")
         c = bytes(c)
         if b"-----BEGIN CERTIFICATE-----" in c:
+            blocks = c.split(b"-----BEGIN CERTIFICATE-----")[1:]
+            if not all(_is_certificate_der(_pem_block_der(bl)) for bl in blocks):
+                raise ValueError("tsa_certs: a PEM block is not a certificate")
             out += c if c.endswith(b"\n") else c + b"\n"
-        elif c[:1] == b"\x30":
+        elif _is_certificate_der(c):
             b64 = base64.b64encode(c)
             out += b"-----BEGIN CERTIFICATE-----\n" + b"\n".join(b64[i:i + 64] for i in range(0, len(b64), 64)) + \
                 b"\n-----END CERTIFICATE-----\n"
         else:
             raise ValueError("tsa_certs: an entry is not a PEM or DER certificate")
     return out
+
+
+def _pem_block_der(block: bytes) -> bytes:
+    """The DER of one PEM certificate block (the bytes after its BEGIN line), or b"" if it does not decode strictly."""
+    if b"-----END CERTIFICATE-----" not in block:
+        return b""
+    try:
+        return base64.b64decode(b"".join(block.split(b"-----END CERTIFICATE-----", 1)[0].split()), validate=True)
+    except (binascii.Error, ValueError):
+        return b""
+
+
+def _is_certificate_der(der: bytes) -> bool:
+    """RFC 5280 §4.1 shape: SEQUENCE { SEQUENCE, SEQUENCE, BIT STRING } filling the bytes exactly (a shape check; openssl
+    reads the certificate). NEMESIS 15/11/2026: a pin that only began with 0x30 was accepted, openssl could not load it,
+    and every token was refused as `signature_invalid` (a fault of the pin reported as a fault of the token)."""
+    def tlv(i):
+        if i + 2 > len(der):
+            return None
+        tag, n, j = der[i], der[i + 1], i + 2
+        if n & 0x80:
+            k = n & 0x7F
+            if k == 0 or k > 4 or j + k > len(der):
+                return None
+            n, j = int.from_bytes(der[j:j + k], "big"), j + k
+        return (tag, j, j + n) if j + n <= len(der) else None
+    top = tlv(0)
+    if top is None or top[0] != 0x30 or top[2] != len(der):
+        return False
+    i, tags = top[1], []
+    while i < top[2]:
+        el = tlv(i)
+        if el is None:
+            return False
+        tags.append(el[0])
+        i = el[2]
+    return tags == [0x30, 0x30, 0x03]
 
 
 def _openssl(args: List[str], timeout: float) -> subprocess.CompletedProcess:
@@ -98,6 +145,9 @@ def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str
             return no("digest_only_binding", "sealed before spec/TIME_ANCHOR.md: the token stamps the evidence digest only")
         if rec.get("anchor") != ANCHOR:
             return no("anchor_unknown", str(rec.get("anchor"))[:80])
+        extra = [k for k in rec if k not in _RECORD_FIELDS]
+        if extra:   # NEMESIS 15/11/2026: a signed field the token does not stamp was accepted with the record "verified"
+            return no("unknown_field", repr(extra)[:200])
         tok = rec.get("token_b64")
         if not isinstance(tok, str) or not tok:
             return no("token_missing")
@@ -114,8 +164,8 @@ def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str
         if name is None or hashed != lte.anchor_imprint_bytes(i, rec, name):
             return no("imprint_mismatch", f"{alg_oid}: {hashed.hex()[:64]}")
         t = rec.get("t")
-        try:
-            same_time = isinstance(t, str) and float(t) == gen_time_seconds(gen)
+        try:   # §3: the string longterm.py writes, repr(float(...)); float() alone took " 1.0\n", "+1.0", "1_0.0", "10"
+            same_time = isinstance(t, str) and t == repr(gen_time_seconds(gen))
         except ValueError:
             same_time = False
         if not same_time:
@@ -138,6 +188,8 @@ def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str
                 return no("not_issued_by_pinned_tsa", (p.stderr or b"").decode("utf-8", "replace").strip()[-200:])
         finally:
             shutil.rmtree(d, ignore_errors=True)
+        if rec.get("token_sha3") != hashlib.sha3_256(tok.encode("ascii")).hexdigest():   # NEMESIS 15/11/2026: the
+            return no("token_sha3_mismatch", str(rec.get("token_sha3"))[:80])          # derived field must agree
         log.append({"ok": True, "reason": None, "detail": gen})
         return True
 

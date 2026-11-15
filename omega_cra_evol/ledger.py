@@ -271,7 +271,46 @@ def _cached_start(path: str, f: BinaryIO) -> Optional[Dict[str, Any]]:
             return None
     if os.fstat(f.fileno()).st_size < s["size"] or _prefix_sha256(f, s["size"]) != s["sha256"]:
         return None
+    # NEMESIS 15/11/2026: the hash proves the bytes, not the chain state written beside it. A state file with the right
+    # hash and another `last` or `n` made the writer append an entry that breaks the chain for good (prev_hash and idx
+    # taken from the state file). The state is used only if the file's own first and last entries say the same.
+    if s["n"] < 1 or _entry_at(f, 0, s["size"]) != (0, s["first"]) or _last_entry(f, s["size"]) != (s["n"] - 1, s["last"]):
+        return None
     return s
+
+
+def _entry_at(f: BinaryIO, start: int, size: int) -> Optional[Tuple[int, str]]:
+    """(idx, self_hash) of the entry on the line that begins at `start`, within the first `size` bytes; None otherwise."""
+    f.seek(start)
+    raw = f.readline(min(MAX_LINE_BYTES + 2, max(size - start, 0)))
+    if not raw.endswith(b"\n"):
+        return None
+    line = line_content(raw)
+    if is_blank_line(line) or len(line) > MAX_LINE_BYTES:
+        return None
+    try:
+        e = parse_line(line.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None
+    if not isinstance(e, dict) or type(e.get("idx")) is not int or not isinstance(e.get("self_hash"), str):
+        return None
+    return e["idx"], e["self_hash"]
+
+
+def _last_entry(f: BinaryIO, size: int) -> Optional[Tuple[int, str]]:
+    """(idx, self_hash) of the last line of the first `size` bytes (which end with a newline), read backwards."""
+    if size < 2:
+        return None
+    pos, end = size - 1, size - 1                         # end: the terminator of the last line
+    while pos > 0 and end - pos <= MAX_LINE_BYTES + 2:
+        step = min(1 << 16, pos)
+        f.seek(pos - step)
+        chunk = f.read(step)
+        k = chunk.rfind(b"\n")
+        if k != -1:
+            return _entry_at(f, pos - step + k + 1, size)
+        pos -= step
+    return _entry_at(f, 0, size) if pos == 0 else None
 
 
 def _write_state(path: str, f: BinaryIO, n: int, lines: int, last: str, first: str) -> None:

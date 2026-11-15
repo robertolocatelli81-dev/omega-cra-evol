@@ -313,7 +313,7 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--pack-sha3", required=True); s.add_argument("--ts-source", default="asserted", choices=("asserted", "rfc3161", "ots")); s.add_argument("--token-b64", help="RFC 3161 / OTS token, standard base64 (required when --ts-source is not 'asserted'); an RFC 3161 token must stamp the record's anchor imprint (--print-imprint, spec/TIME_ANCHOR.md) and gives the record its time")
     s.add_argument("--print-imprint", action="store_true", help="print the hex digest a TSA must stamp for this seal (spec/TIME_ANCHOR.md §2) and record nothing; needs --tip-key (the sealing key)")
     s.add_argument("--tsa-hash", default="sha256", choices=("sha256", "sha3-256"), help="hash of the imprint for --print-imprint (default sha256: public TSAs refuse sha3-256)")
-    s.add_argument("--tsa-cert", action="append", metavar="PEM", help="pin a TSA certificate (or a CA above it): the seal's RFC 3161 tokens are verified against it (signature, TSA, time, binding) and temporal_trust can be 'verified'; repeat for several")
+    s.add_argument("--tsa-cert", action="append", metavar="PEM", help="pin a TSA certificate (or a CA above it): the seal's RFC 3161 tokens are verified against it (signature, TSA, time, binding) and temporal_trust can be 'verified'; with --ts-source rfc3161 only; a token refused under the pin records nothing (exit 1); repeat for several")
     s.add_argument("--renew", help="JSON file with the previous seal (lte dict) to extend the chain")
     s = sub.add_parser("attest", help="sign an in-toto statement (predicate art14-filing v0.2 or v0.1, DSSE, Ed25519) about a notice drop file and its ledger entry",
                        description="Writes a DSSE envelope (payloadType application/vnd.in-toto+json) whose Statement names the drop file's "
@@ -526,6 +526,29 @@ def _main(argv: List[str] = None) -> int:
                 _pins_pem(a.tsa_cert)
         except ValueError as e:
             p.error(f"seal --tsa-cert: {e}")
+        if a.tsa_cert is not None and a.ts_source != "rfc3161":   # NEMESIS 15/11/2026: it recorded the seal, then exit 1
+            p.error("seal --tsa-cert: only with --ts-source rfc3161 (an asserted or ots record has no RFC 3161 token to verify)")
+        if a.tsa_cert:   # NEMESIS 15/11/2026: check the token against the pin BEFORE anything is recorded (a refused token
+            #             was recorded, then exit 1: a retry recorded it twice)
+            import copy
+            from .longterm import Signer
+            from .time_anchor import TimeAnchorNotRun, make_timestamp_trust_fn
+            try:
+                trial = LongTermEvidence.from_dict(copy.deepcopy(lk._longterm_chain(a.pack_sha3, prev, False).to_dict()))
+                k = lk.tip_key
+                trial.seal(Signer("ed25519", key=k) if k is not None else Signer("ed25519"), None, ts_source="rfc3161",
+                           token_b64=a.token_b64)
+                fn = make_timestamp_trust_fn(trial, a.tsa_cert)
+                ok = fn(trial.records[-1])
+            except TokenRefused as e:
+                _p({"sealed": False, "reasons": [str(e)[:400]]}); return 1
+            except ValueError as e:
+                _p({"sealed": False, "reasons": [str(e)[:400]]}); return 1
+            except TimeAnchorNotRun as e:
+                _p({"sealed": False, "reasons": [f"time anchor not checked here, nothing recorded: {str(e)[:300]}"]}); return 74
+            if not ok:
+                _p({"sealed": False, "reasons": ["the token is refused under the pinned TSA certificates; nothing recorded"],
+                    "time_anchor_log": fn.log}); return 1
         try:
             d = lk.seal_longterm(a.pack_sha3, ts_source=a.ts_source, previous=prev, token_b64=a.token_b64)
         except TokenRefused as e:
