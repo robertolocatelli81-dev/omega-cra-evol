@@ -14,6 +14,17 @@
   `pyproject.toml` (setuptools ≥ 77, which builds wheels itself: `wheel` is no longer a build requirement); the
   licence classifier, which PEP 639 does not allow next to an expression, is removed; the wheel's METADATA carries
   `License-Expression` and the licence file.
+- **Behind a corporate proxy.** A loopback AWS KMS endpoint (a local emulator) is reached directly: with `HTTP_PROXY` set,
+  the signed request went to the proxy, which cannot reach this host's loopback. AWS itself still goes through the
+  environment proxy. The test of `srp_glossary.fetch` excludes its loopback server from the proxy (`no_proxy`): it
+  failed with `HTTP_PROXY` set from the start.
+- **The AWS KMS signing path runs in the tests.** `tests/test_kms_local_20261115.py` drives GetPublicKey and Sign
+  against a KMS emulator on loopback, checks the Ed25519 signature with the key the signer read, and the refusals (a
+  key that is not Ed25519, a signature that is not 64 bytes, an http endpoint that is not loopback); the end-to-end
+  case runs in a new interpreter with a proxy that cannot be reached in its environment from the start, and fails
+  on the code before this change.
+- **`verifiers/rust/Cargo.lock` is in the repository** and the CI builds with `--locked` (36 external crates, among them
+  ed25519-dalek 2.2.0).
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 

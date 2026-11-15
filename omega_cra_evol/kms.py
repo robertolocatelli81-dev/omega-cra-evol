@@ -71,7 +71,11 @@ class KMSSigner:
         headers = sigv4_headers(self._host, self.region, "kms", target, body, self._ak, self._sk, self._st,
                                 now.strftime("%Y%m%dT%H%M%SZ"), now.strftime("%Y%m%d"))
         req = urllib.request.Request(self._endpoint.rstrip("/") + "/", data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:  # nosec B310 — fixed AWS endpoint
+        # a loopback endpoint (a local KMS emulator) is reached directly: an environment proxy cannot reach this host's
+        # loopback, and would receive the signed request (15/11/2026); AWS itself goes through the proxy, if any
+        loopback = (urllib.parse.urlsplit(self._endpoint).hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if loopback else urllib.request.build_opener()
+        with opener.open(req, timeout=self.timeout) as r:  # nosec B310 — fixed AWS endpoint, or loopback
             return json.load(r)
 
     def _read_pubkey(self) -> str:

@@ -109,7 +109,7 @@ jobs:
         run: |
           pip install ".[sign]"
           (cd verifiers/go && go vet ./... && go build -o /tmp/cra-verify-go .)
-          (cd verifiers/rust && cargo build --release)
+          (cd verifiers/rust && cargo build --release --locked)   # Cargo.lock in the repository: the same crate versions every run
       - name: Differential oracle — Python / JS / Go / Rust must agree on every fixture AND on the failing layers (absence = failure)
         run: CRA_VERIFY_GO=/tmp/cra-verify-go python verifiers/differential.py --require js,go,rust
       - name: A receipt that could not be written exits 74 — Python CLI, JS, Go and Rust (real processes on /dev/full and a closed pipe)

@@ -5,6 +5,7 @@ the fix or on a mutant of it — srp-notice/1 kept frozen (an N/A field and non-
 covering glossary_version, a refused binding leaving no file, a new notice only under the current glossary, values the
 canonical profile refuses, JSON equality, the drift check's version line / notes / local errors, and the fetch retry."""
 import contextlib, copy, http.server, io, json, os, shutil, subprocess, sys, tempfile, threading, unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
@@ -290,6 +291,10 @@ class TestDrift(_Tmp, unittest.TestCase):
         srv = http.server.HTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         url = f"http://127.0.0.1:{srv.server_port}/"
+        # the server is on loopback: an environment proxy (a corporate network) cannot reach it; fetch() itself keeps
+        # using the proxy for ENISA's site (15/11/2026: this test failed behind HTTP_PROXY)
+        bypass = mock.patch.dict(os.environ, {"no_proxy": "127.0.0.1,localhost", "NO_PROXY": "127.0.0.1,localhost"})
+        bypass.start()
         try:
             seq[:] = [429, 503]; hits.clear()
             self.assertEqual(srp_glossary.fetch(url, attempts=3, wait=0), "<html>ok</html>"); self.assertEqual(hits, [429, 503, 200])
@@ -298,6 +303,7 @@ class TestDrift(_Tmp, unittest.TestCase):
                 srp_glossary.fetch(url, attempts=3, wait=0)
             self.assertEqual(hits, [404])
         finally:
+            bypass.stop()
             srv.shutdown(); srv.server_close()
 
 
