@@ -1,0 +1,24 @@
+# Who must review a change to which path (GitHub: "About code owners"; the file takes effect in .github/, in the
+# repository root or in docs/, on the base branch of the pull request). The LAST matching line wins.
+# Today there is one maintainer (GOVERNANCE.md): every path has the same owner. The separate lines exist so that
+# adding a second owner for one area is a one-line change that a reviewer can read.
+# Code-owner review is ENFORCED only if the branch protection of `master` requires it — a setting of the
+# repository, not of this file (GOVERNANCE.md, "What is not met today").
+
+*                       @robertolocatelli81-dev
+
+# what can publish, sign or change who decides: workflows, the action, the image, packaging, the governance files
+/.github/               @robertolocatelli81-dev
+/action.yml             @robertolocatelli81-dev
+/Dockerfile             @robertolocatelli81-dev
+/container/             @robertolocatelli81-dev
+/pyproject.toml         @robertolocatelli81-dev
+/SECURITY.md            @robertolocatelli81-dev
+/GOVERNANCE.md          @robertolocatelli81-dev
+/CONTRIBUTING.md        @robertolocatelli81-dev
+/DCO                    @robertolocatelli81-dev
+/LICENSE                @robertolocatelli81-dev
+
+# the written formats other implementations follow, and the independent verifiers
+/spec/                  @robertolocatelli81-dev
+/verifiers/             @robertolocatelli81-dev

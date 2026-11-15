@@ -56,6 +56,12 @@
   the exception is never suppressed), which also lets a type checker see that the code after its `with` blocks is
   unreachable. `py.typed` is not shipped yet: `mypy` reports 82 errors in the package (15/11/2026). The interface
   and its tests were proposed by Athena's review of 15/11/2026.
+- **Governance files.** `CONTRIBUTING.md` (reports, interoperability results and documents welcome; code
+  contributions not accepted at present; the maintainer's commits carry a DCO 1.1 sign-off since 15/11/2026),
+  `GOVERNANCE.md` (one maintainer, what is not met today: no second reviewer), `SUPPORT.md` (only the latest release
+  is fixed; no paid support), `.github/CODEOWNERS`, `DCO` (byte for byte the text of developercertificate.org).
+  Drafted by Athena's review of 15/11/2026, without the contributor licence agreement it proposed: no commercial
+  licence is offered, and no external code is accepted.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 
