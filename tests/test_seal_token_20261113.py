@@ -107,16 +107,20 @@ class TokenShape(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_CRYPTO, "a seal is signed: cryptography needed")
 class SealLibrary(unittest.TestCase):
-    def test_well_formed_token_is_stored_and_still_assumed(self):
+    def test_a_token_over_the_bare_digest_is_refused_since_the_anchor(self):
+        """0.9.0-0.11.1 stored this token (well formed, SHA3-256 over the sealed digest); since spec/TIME_ANCHOR.md a
+        token must stamp the record's anchor imprint (tests/test_time_anchor_20261115.py): this one is refused, and
+        nothing is recorded."""
         from omega_cra_evol.locker import EvidenceLocker
         d = tempfile.mkdtemp()
         lk = EvidenceLocker(os.path.join(d, "l.jsonl"), "p", "1")
-        seal = lk.seal_longterm(PS, ts_source="rfc3161", token_b64=RESP_SHA3, external_digest=True)
-        self.assertEqual(seal["records"][-1]["token_b64"], RESP_SHA3)
-        from omega_cra_evol.longterm import LongTermEvidence
-        self.assertIn("ASSUMED", LongTermEvidence.from_dict(seal).verify(now=0.0)["temporal_trust"])
-        with self.assertRaises(TokenRefused):
-            lk.seal_longterm(PS, ts_source="rfc3161", token_b64="AAAA", external_digest=True)
+        n0 = len(list(lk.ledger.entries()))
+        for tok in (RESP_SHA3, TOKEN_SHA3, "AAAA"):
+            with self.assertRaises(TokenRefused) as cm:
+                lk.seal_longterm(PS, ts_source="rfc3161", token_b64=tok, external_digest=True)
+            if tok != "AAAA":
+                self.assertIn("bare digest", str(cm.exception))
+        self.assertEqual(len(list(lk.ledger.entries())), n0)
 
 
 @unittest.skipUnless(HAVE_CRYPTO, "a seal is signed: cryptography needed")

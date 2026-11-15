@@ -23,6 +23,9 @@ SRPNotice = functools.partial(_SRPNotice, glossary_version=G0929)
 from omega_cra_evol.verify_pack import verify_pack
 from omega_cra_evol.vuln import VulnerabilityRecord, add_months, parse_utc
 from omega_cra_evol import feeds
+from omega_cra_evol.time_anchor import make_timestamp_trust_fn
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from local_tsa import HAVE_OPENSSL, LocalTsa  # noqa: E402
 
 try:
     from omega_cra_evol.signing import keygen, load_key, sign_pack, sidecar_path
@@ -72,19 +75,27 @@ class TestCouncilR2(unittest.TestCase):
         side = json.load(open(sidecar_path(pack))); side["signer_id"] = "TUV Notified Body"; json.dump(side, open(sidecar_path(pack), "w"))
         r = verify_pack(pack); self.assertEqual(r["authenticity"], "FAIL")
 
-    # reviewer 4 A2 / reviewer 1 A4 — seal chain renewable, key pinned (the log key), identity declared
-    @unittest.skipUnless(HAVE_CRYPTO, "cryptography not installed")
+    # reviewer 4 A2 / reviewer 1 A4 — seal chain renewable, key pinned (the log key), identity declared. Since 15/11/2026
+    # the times are RFC 3161 tokens of a local TSA checked by the package's own timestamp_trust_fn (spec/TIME_ANCHOR.md),
+    # not `lambda r: True`, which accepted any token (tests/test_time_anchor_20261115.py shows it accepting garbage)
+    @unittest.skipUnless(HAVE_CRYPTO and HAVE_OPENSSL, "cryptography and openssl needed")
     def test_seal_renewal_chain_with_pinned_key(self):
         k = os.path.join(self.d, "k.key"); keygen(k); key = load_key(k)
         lk = EvidenceLocker(os.path.join(self.d, "l.jsonl"), "p", "1", tip_key=key)
         lk.record_vulnerability(VulnerabilityRecord("p", "CVE-1", False, AW))
-        first = lk.seal_longterm("ab" * 32, t=1_800_000_000.0, external_digest=True)
-        second = lk.seal_longterm("ab" * 32, t=1_900_000_000.0, previous=first, external_digest=True)
+        tsa, other = LocalTsa(os.path.join(self.d, "tsa")), LocalTsa(os.path.join(self.d, "other"))
+        first = lk.seal_longterm("ab" * 32, ts_source="rfc3161", external_digest=True,
+                                 token_b64=tsa.token(lk.longterm_anchor_imprint("ab" * 32, external_digest=True)))
+        imp = lk.longterm_anchor_imprint("ab" * 32, previous=first, external_digest=True)
+        second = lk.seal_longterm("ab" * 32, ts_source="rfc3161", previous=first, external_digest=True, token_b64=tsa.token(imp))
         lte = LongTermEvidence.from_dict(second); self.assertEqual(len(lte.records), 2)
         self.assertFalse(lte.records[0]["ephemeral_key"]); self.assertEqual(lte.records[0]["pub"], key[1])
-        v = lte.verify(now=1_950_000_000.0, timestamp_trust_fn=lambda r: True, trusted_pubs={key[1]})
-        self.assertTrue(v["ok"], v)
-        self.assertFalse(lte.verify(now=1_950_000_000.0, timestamp_trust_fn=lambda r: True, trusted_pubs={"00" * 32})["ok"])
+        fn = make_timestamp_trust_fn(lte, [tsa.ca])
+        v = lte.verify(now=1_950_000_000.0, timestamp_trust_fn=fn, trusted_pubs={key[1]})
+        self.assertTrue(v["ok"], v); self.assertEqual(v["temporal_trust"], "verified")
+        self.assertFalse(lte.verify(now=1_950_000_000.0, timestamp_trust_fn=fn, trusted_pubs={"00" * 32})["ok"])
+        v = lte.verify(now=1_950_000_000.0, timestamp_trust_fn=make_timestamp_trust_fn(lte, [other.ca]), trusted_pubs={key[1]})
+        self.assertFalse(v["ok"]); self.assertNotEqual(v["temporal_trust"], "verified")   # the oracle refuses another TSA
         self.assertFalse(lte.verify(now=1_950_000_000.0)["ok"])          # renewal on UNVERIFIED times is not ok
         with self.assertRaises(ValueError):
             lk.seal_longterm("cd" * 32, previous=first, external_digest=True)   # previous seal over another digest

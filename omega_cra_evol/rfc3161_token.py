@@ -1,32 +1,35 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The shape of a time token given to `cra seal` (no signature, no certificate, no time is VERIFIED here).
 
-`ts_source="rfc3161"`: the token (standard base64) must be the DER of an RFC 3161 TimeStampResp whose status is granted
-(0) or granted with mods (1), or of the TimeStampToken itself (a CMS ContentInfo, signedData), whose encapsulated
-content type is id-ct-TSTInfo (1.2.840.113549.1.9.16.1.4) and whose TSTInfo messageImprint is SHA3-256
-(2.16.840.1.101.3.4.2.8) over the 32 bytes of the sealed digest (the pack_sha3). Anything else is refused with the
-reason. `ts_source="ots"`: the token must start with the OpenTimestamps file header (it is not parsed further).
+`rfc3161_tstinfo` reads an RFC 3161 TimeStampResp whose status is granted (0) or granted with mods (1), or the
+TimeStampToken itself (a CMS ContentInfo, signedData), whose encapsulated content type is id-ct-TSTInfo
+(1.2.840.113549.1.9.16.1.4): its messageImprint and its genTime. What a seal's token must stamp is in
+spec/TIME_ANCHOR.md (longterm.seal checks it). `check_token` keeps the shape of 0.9.0-0.11.1: for
+`ts_source="rfc3161"`, a SHA3-256 (2.16.840.1.101.3.4.2.8) imprint over the 32 bytes of the sealed digest; `cra seal` no
+longer uses that branch. `ts_source="ots"`: the token must start with the OpenTimestamps file header (it is not parsed
+further).
 
-What this does NOT do: verify the CMS signature, the TSA certificate, its EKU or its chain, nor read the genTime as
-a trusted time. A seal with a well-formed token is still `temporal_trust: ASSUMED` until a `timestamp_trust_fn` is
-injected at verification."""
+What this does NOT do: verify the CMS signature, the TSA certificate, its EKU or its chain, nor trust the genTime.
+That is omega_cra_evol.time_anchor.make_timestamp_trust_fn, against the TSA certificates a verifier pins."""
 from __future__ import annotations
 
 # The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
 # release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
 __all__ = [
-    "OID_SHA3_256", "OID_SIGNED_DATA", "OID_TSTINFO", "OTS_MAGIC", "TS_SOURCES", "TokenRefused", "check_token",
-    "rfc3161_imprint",
+    "OID_SHA256", "OID_SHA3_256", "OID_SIGNED_DATA", "OID_TSTINFO", "OTS_MAGIC", "TS_SOURCES", "TokenRefused",
+    "check_token", "gen_time_seconds", "rfc3161_imprint", "rfc3161_tstinfo", "timestamp_token_der",
 ]
 
 import base64
 import binascii
+import re
 from typing import List, Tuple
 
 TS_SOURCES = ("asserted", "rfc3161", "ots")
 OID_SIGNED_DATA = "1.2.840.113549.1.7.2"
 OID_TSTINFO = "1.2.840.113549.1.9.16.1.4"
 OID_SHA3_256 = "2.16.840.1.101.3.4.2.8"
+OID_SHA256 = "2.16.840.1.101.3.4.2.1"
 OTS_MAGIC = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
 
 
@@ -97,19 +100,45 @@ def _whole(b: bytes) -> Tuple[int, int, int]:
 
 def rfc3161_imprint(der: bytes) -> Tuple[str, bytes]:
     """(hash algorithm OID, hashedMessage) of the TSTInfo inside a TimeStampResp or a TimeStampToken"""
+    alg, h, _ = rfc3161_tstinfo(der)
+    return alg, h
+
+
+def _token_span(der: bytes) -> Tuple[int, int, List[Tuple[int, int, int]]]:
+    """(start, end) of the TimeStampToken inside `der` (a TimeStampResp or the token itself) and the token's two
+    children (contentType, [0] content)."""
     tag, s, e = _whole(der)
     if tag != 0x30:
         raise TokenRefused("not a DER SEQUENCE")
     kids = _children(der, s, e)
+    start, end = 0, len(der)
     if kids and kids[0][0] == 0x30:              # TimeStampResp: status, then the token
         st = _children(der, kids[0][1], kids[0][2])
         if not st or _int(der, st[0]) not in (0, 1):
             raise TokenRefused("TimeStampResp status is not granted (0) or grantedWithMods (1)")
         if len(kids) != 2:
             raise TokenRefused("TimeStampResp without a timeStampToken")
-        kids = _children(der, kids[1][1], kids[1][2]) if kids[1][0] == 0x30 else []
+        if kids[1][0] == 0x30:
+            start, end = kids[0][2], kids[1][2]       # the token's TLV starts where the status ends
+            kids = _children(der, kids[1][1], kids[1][2])
+        else:
+            kids = []
     if len(kids) != 2 or _oid(der, kids[0]) != OID_SIGNED_DATA or kids[1][0] != 0xA0:
         raise TokenRefused("not a CMS ContentInfo with signedData")
+    return start, end, kids
+
+
+def timestamp_token_der(der: bytes) -> bytes:
+    """The TimeStampToken (CMS ContentInfo) itself, from a TimeStampResp or from the token"""
+    start, end, _ = _token_span(der)
+    return der[start:end]
+
+
+def rfc3161_tstinfo(der: bytes) -> Tuple[str, bytes, str]:
+    """(hash algorithm OID, hashedMessage, genTime as written) of the TSTInfo inside a TimeStampResp or a
+    TimeStampToken. genTime must be a GeneralizedTime of RFC 3161 §2.4.2: YYYYMMDDhhmmss[.f+]Z, no trailing zero in the
+    fraction (spec/TIME_ANCHOR.md §3)."""
+    _, _, kids = _token_span(der)
     sd = _children(der, kids[1][1], kids[1][2])
     if len(sd) != 1 or sd[0][0] != 0x30:
         raise TokenRefused("signedData is not a SEQUENCE")
@@ -138,7 +167,33 @@ def rfc3161_imprint(der: bytes) -> Tuple[str, bytes]:
     alg = _children(tst, mi[0][1], mi[0][2])
     if not alg:
         raise TokenRefused("messageImprint hashAlgorithm malformed")
-    return _oid(tst, alg[0]), tst[mi[1][1]:mi[1][2]]
+    _int(tst, f[3])                                   # serialNumber
+    if f[4][0] != 0x18:
+        raise TokenRefused("TSTInfo genTime is not a GeneralizedTime")
+    try:
+        gen = tst[f[4][1]:f[4][2]].decode("ascii")
+    except UnicodeDecodeError:
+        raise TokenRefused("TSTInfo genTime is not ASCII") from None
+    if not _GEN_TIME.fullmatch(gen) or (("." in gen) and gen[-2] == "0"):
+        raise TokenRefused(f"TSTInfo genTime {gen[:40]!r} is not YYYYMMDDhhmmss[.f]Z (RFC 3161 §2.4.2)")
+    gen_time_seconds(gen)                             # a real calendar time
+    return _oid(tst, alg[0]), tst[mi[1][1]:mi[1][2]], gen
+
+
+_GEN_TIME = re.compile(r"[0-9]{14}(\.[0-9]+)?Z")
+
+
+def gen_time_seconds(gen: str) -> float:
+    """spec/TIME_ANCHOR.md §3: genTime (YYYYMMDDhhmmss[.f]Z, UTC) as seconds since 1970-01-01T00:00:00Z: the calendar
+    seconds, then the fraction digits as written, read as one decimal string by float()."""
+    import calendar
+    from datetime import datetime
+    try:
+        secs = calendar.timegm(datetime.strptime(gen[:14], "%Y%m%d%H%M%S").timetuple())
+    except ValueError:
+        raise TokenRefused(f"TSTInfo genTime {gen[:40]!r} is not a calendar time") from None
+    frac = gen[15:-1] if gen[14:15] == "." else ""
+    return float(f"{secs}.{frac}" if frac else f"{secs}")
 
 
 def check_token(ts_source: str, token_b64: str, evidence_digest: str) -> None:

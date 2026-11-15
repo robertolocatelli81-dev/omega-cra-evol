@@ -319,14 +319,7 @@ class EvidenceLocker:
                                    f"complete pack stays at {tmp.name}") from None
         return pack
 
-    def seal_longterm(self, pack_sha3: str, alg: str = "ed25519", ts_source: str = "asserted",
-                      t: Optional[float] = None, previous: Optional[Dict[str, Any]] = None,
-                      key: Optional[Tuple[Any, str]] = None, token_b64: Optional[str] = None,
-                      external_digest: bool = False) -> Dict[str, Any]:
-        """Seal (or RENEW, with `previous` = the last seal dict from the ledger) the pack digest. The signing key is the
-        locker's log key by default (identity = the key that signs the chain tip); with no key at all the seal is
-        ephemeral and says so. ts_source != "asserted" requires the token. Nothing here VERIFIES a time token: the
-        record carries it for the verifier's temporal oracle."""
+    def _longterm_chain(self, pack_sha3: str, previous: Optional[Dict[str, Any]], external_digest: bool) -> LongTermEvidence:
         if not re.fullmatch(r"[0-9a-f]{64}", str(pack_sha3)):
             raise ValueError("pack_sha3 must be a 64-hex SHA3-256 digest")
         if not external_digest:   # by default only a pack ANCHORED in this ledger can be sealed (a seal over nothing is noise)
@@ -337,9 +330,36 @@ class EvidenceLocker:
         lte = LongTermEvidence.from_dict(previous) if previous else LongTermEvidence(evidence_digest=pack_sha3)
         if lte.evidence_digest != pack_sha3:
             raise ValueError("previous seal is over a different digest")
+        return lte
+
+    def longterm_anchor_imprint(self, pack_sha3: str, alg: str = "ed25519", previous: Optional[Dict[str, Any]] = None,
+                                key: Optional[Tuple[Any, str]] = None, external_digest: bool = False,
+                                tsa_hash: str = "sha256") -> str:
+        """The hex digest a TSA must stamp for the next `seal_longterm(..., ts_source="rfc3161")` with the same arguments
+        (spec/TIME_ANCHOR.md §2, §4). Needs the sealing key (`key`, or the locker's tip key): an ephemeral key is made at
+        seal time and cannot be known before."""
+        k = key if key is not None else (self.tip_key if (alg == "ed25519" and self.tip_key is not None) else None)
+        if k is None:
+            raise ValueError("the anchor imprint names the sealing key: give key= or a locker with a tip key (an ephemeral key "
+                             "is made at seal time)")
+        return self._longterm_chain(pack_sha3, previous, external_digest).anchor_imprint(Signer(alg, key=k), tsa_hash=tsa_hash)
+
+    def seal_longterm(self, pack_sha3: str, alg: str = "ed25519", ts_source: str = "asserted",
+                      t: Optional[float] = None, previous: Optional[Dict[str, Any]] = None,
+                      key: Optional[Tuple[Any, str]] = None, token_b64: Optional[str] = None,
+                      external_digest: bool = False) -> Dict[str, Any]:
+        """Seal (or RENEW, with `previous` = the last seal dict from the ledger) the pack digest. The signing key is the
+        locker's log key by default (identity = the key that signs the chain tip); with no key at all the seal is
+        ephemeral and says so. ts_source != "asserted" requires the token; an "rfc3161" token stamps the record's anchor
+        imprint (`longterm_anchor_imprint`, spec/TIME_ANCHOR.md) and gives the record its time (`t` None or its genTime).
+        Nothing here VERIFIES a time token: the record carries it for the verifier's temporal oracle
+        (omega_cra_evol.time_anchor.make_timestamp_trust_fn)."""
+        lte = self._longterm_chain(pack_sha3, previous, external_digest)
         k = key if key is not None else (self.tip_key if (alg == "ed25519" and self.tip_key is not None) else None)
         signer = Signer(alg, key=k)
-        lte.seal(signer, t=t if t is not None else datetime.now(timezone.utc).timestamp(), ts_source=ts_source, token_b64=token_b64)
+        if t is None and ts_source != "rfc3161":   # an rfc3161 record's time is its token's genTime
+            t = datetime.now(timezone.utc).timestamp()
+        lte.seal(signer, t=t, ts_source=ts_source, token_b64=token_b64)
         d = lte.to_dict()
         self._append({"kind": "cra_longterm_seal", "lte": d, "chain_len": len(lte.records), "renewal": previous is not None,
                       "time_anchor": ts_source, "time_anchor_verified_here": False, "signer_ephemeral": signer.ephemeral,

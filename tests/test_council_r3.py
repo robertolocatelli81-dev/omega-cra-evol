@@ -17,6 +17,9 @@ SRPNotice = functools.partial(_SRPNotice, glossary_version=G0929)
 from omega_cra_evol.verify_pack import verify_pack
 from omega_cra_evol.vuln import VulnerabilityRecord
 from omega_cra_evol import feeds
+from omega_cra_evol.time_anchor import make_timestamp_trust_fn
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from local_tsa import HAVE_OPENSSL, LocalTsa  # noqa: E402
 
 try:
     from omega_cra_evol.signing import keygen, load_key, sign_pack, sidecar_path
@@ -46,11 +49,19 @@ class TestCouncilR3(unittest.TestCase):
             bad = LongTermEvidence.from_dict(json.loads(json.dumps(lte.to_dict()))); bad.records[-1][k] = v
             self.assertFalse(bad.verify(now=2.0, policy=AlgorithmPolicy())["ok"], k)
 
-    # A: hash policy enforced on intermediate records and in renewal_due; malformed records are verdicts
+    # A: hash policy enforced on intermediate records and in renewal_due; malformed records are verdicts. Since 15/11/2026
+    # the two times are tokens of a local TSA checked by the package's timestamp_trust_fn, not `lambda r: True`
+    @unittest.skipUnless(HAVE_OPENSSL, "openssl needed (local TSA)")
     def test_hash_policy_everywhere_and_malformed_records(self):
-        lte = LongTermEvidence("ab" * 32); lte.seal(Signer("test-plain3"), t=1.0, hash_alg="sha2-512"); lte.seal(Signer("test-plain3"), t=5.0)
-        pol = AlgorithmPolicy({"sha2-512": 3.0})
-        v = lte.verify(now=6.0, policy=pol, timestamp_trust_fn=lambda r: True)
+        tsa = LocalTsa(os.path.join(self.d, "tsa"))
+        lte = LongTermEvidence("ab" * 32)
+        for h in ("sha2-512", "sha3-256"):
+            s = Signer("test-plain3")
+            lte.seal(s, None, ts_source="rfc3161", hash_alg=h, token_b64=tsa.token(lte.anchor_imprint(s, hash_alg=h)))
+        fn = make_timestamp_trust_fn(lte, [tsa.ca])
+        pol = AlgorithmPolicy({"sha2-512": float(lte.records[1]["t"])})   # broken at the renewal's own time: too late
+        v = lte.verify(now=float(lte.records[1]["t"]) + 1, policy=pol, timestamp_trust_fn=fn)
+        self.assertEqual(v["temporal_trust"], "verified", v)
         self.assertFalse(v["ok"]); self.assertTrue(any("hash already broken" in r for r in v["reasons"]))
         one = LongTermEvidence("ab" * 32); one.seal(Signer("test-plain3"), t=1.0, hash_alg="sha2-512")
         self.assertTrue(one.renewal_due(now=2.9, policy=AlgorithmPolicy({"sha2-512": 3.0, "test-plain3": 100.0}), margin=0.5)["due"])

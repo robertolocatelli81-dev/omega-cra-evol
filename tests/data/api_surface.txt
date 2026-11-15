@@ -122,6 +122,7 @@ locker.EvidenceLocker.record_notice(self, notice: SRPNotice, drop_result: Option
 locker.EvidenceLocker.bind_notice(self, notice: SRPNotice, divergence_reason: Optional[str]=None, pending: Tuple[Dict[str, Any], ...]=()) -> List[Any]
 locker.EvidenceLocker.verify(self) -> Dict[str, Any]
 locker.EvidenceLocker.evidence_pack(self, out_path: str) -> Dict[str, Any]
+locker.EvidenceLocker.longterm_anchor_imprint(self, pack_sha3: str, alg: str='ed25519', previous: Optional[Dict[str, Any]]=None, key: Optional[Tuple[Any, str]]=None, external_digest: bool=False, tsa_hash: str='sha256') -> str
 locker.EvidenceLocker.seal_longterm(self, pack_sha3: str, alg: str='ed25519', ts_source: str='asserted', t: Optional[float]=None, previous: Optional[Dict[str, Any]]=None, key: Optional[Tuple[Any, str]]=None, token_b64: Optional[str]=None, external_digest: bool=False) -> Dict[str, Any]
 locker.HONEST_SCOPE: const
 locker.HONEST_SCOPE_MARK: const
@@ -132,6 +133,9 @@ locker.RETENTION_YEARS: const
 locker.SOURCES_SUFFIX: const
 locker.source_file(ledger_path: str, sha256: str) -> str
 locker.sources_dir(ledger_path: str) -> str
+longterm.ANCHOR: const
+longterm.ANCHOR_HASHES: const
+longterm.ANCHOR_OWN: const
 longterm.AlgorithmPolicy: class()
 longterm.AlgorithmPolicy.broken_after: Dict[str, Optional[float]]
 longterm.AlgorithmPolicy.trusted_at(self, alg: str, t: float) -> bool
@@ -141,7 +145,9 @@ longterm.HASHES: const
 longterm.LongTermEvidence: class()
 longterm.LongTermEvidence.evidence_digest: str
 longterm.LongTermEvidence.records: List[Dict]
-longterm.LongTermEvidence.seal(self, signer: Signer, t: float, ts_source: str='asserted', stronger_digest: Optional[str]=None, hash_alg: str=DEFAULT_HASH, token_b64: Optional[str]=None) -> Dict
+longterm.LongTermEvidence.anchor_imprint_bytes(self, index: int, own: Dict, tsa_hash: str) -> bytes
+longterm.LongTermEvidence.anchor_imprint(self, signer: Signer, hash_alg: str=DEFAULT_HASH, stronger_digest: Optional[str]=None, tsa_hash: str='sha256') -> str
+longterm.LongTermEvidence.seal(self, signer: Signer, t: Optional[float], ts_source: str='asserted', stronger_digest: Optional[str]=None, hash_alg: str=DEFAULT_HASH, token_b64: Optional[str]=None) -> Dict
 longterm.LongTermEvidence.verify(self, now: float, policy: Optional[AlgorithmPolicy]=None, timestamp_trust_fn: Optional[Callable[[Dict], bool]]=None, trusted_pubs: Optional[set]=None) -> Dict
 longterm.LongTermEvidence.renewal_due(self, now: float, policy: Optional[AlgorithmPolicy]=None, margin: float=0.0) -> Dict
 longterm.LongTermEvidence.to_dict(self) -> Dict
@@ -163,6 +169,7 @@ outputs.commit_tmp(tmp: str, path: str) -> None
 outputs.refuse_directory(path: str) -> None
 outputs.write_file(path: str, text: str) -> None
 outputs.write_tmp(path: str, text: Union[str, bytes]) -> str
+rfc3161_token.OID_SHA256: const
 rfc3161_token.OID_SHA3_256: const
 rfc3161_token.OID_SIGNED_DATA: const
 rfc3161_token.OID_TSTINFO: const
@@ -170,7 +177,10 @@ rfc3161_token.OTS_MAGIC: const
 rfc3161_token.TS_SOURCES: const
 rfc3161_token.TokenRefused: class(ValueError)
 rfc3161_token.check_token(ts_source: str, token_b64: str, evidence_digest: str) -> None
+rfc3161_token.gen_time_seconds(gen: str) -> float
 rfc3161_token.rfc3161_imprint(der: bytes) -> Tuple[str, bytes]
+rfc3161_token.rfc3161_tstinfo(der: bytes) -> Tuple[str, bytes, str]
+rfc3161_token.timestamp_token_der(der: bytes) -> bytes
 sbom.CYCLONEDX_COMPONENT_TYPES: const
 sbom.CYCLONEDX_EXPORT_VERSIONS: const
 sbom.ECMA_KEYWORDS: const
@@ -309,6 +319,9 @@ srp_notice.check_source_filing(source: Any, filing: Any, stream: str, glossary_v
 srp_notice.glossary(version: str=CURRENT_GLOSSARY) -> Dict[str, Any]
 srp_notice.schema(stream: str, glossary_version: str=CURRENT_GLOSSARY) -> Dict[str, Dict[str, Any]]
 srp_notice.template(stream: str, stage: str, glossary_version: str=CURRENT_GLOSSARY) -> Dict[str, Any]
+time_anchor.REASONS: const
+time_anchor.TimeAnchorNotRun: class(OSError)
+time_anchor.make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str, bytes]], timeout: float=30.0) -> Callable[[Dict[str, Any]], bool]
 verify_pack.ENTRY_KEYS: const
 verify_pack.EXTERNAL_FORMATS: const
 verify_pack.FAIL_CLOSED_REASONS: const

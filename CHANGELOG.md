@@ -2,6 +2,26 @@
 
 ## Unreleased — supply chain of the release measurable by third parties
 
+- **A seal's RFC 3161 token is bound to its record and can be verified** (`spec/TIME_ANCHOR.md`,
+  `cra-lta-time-anchor/1`, written before the code). Until now `cra seal` stored a token whose imprint was the bare
+  sealed digest and nothing in the package verified it: `LongTermEvidence.verify` needed a `timestamp_trust_fn` the
+  caller had to write, and the package's own tests passed `lambda r: True`, which accepts a record whose token is
+  the string `not base64!` (shown in the new test). Now the token of a `rfc3161` record stamps SHA-256 or SHA3-256 of a
+  domain line, the evidence digest, every previous record and the record's own fields (a renewal's token covers the
+  chain before it, as RFC 4998 §5.2's hash-tree renewal does); the record's `t` is the token's genTime; the record
+  carries `"anchor": "cra-lta-time-anchor/1"`. `omega_cra_evol.time_anchor.make_timestamp_trust_fn(lte, tsa_certs)`
+  checks each record against the TSA certificates the verifier pins (openssl `cms -verify` and `ts -verify
+  -partial_chain -attime genTime`) and refuses with a closed reason (`digest_only_binding`, `imprint_mismatch`,
+  `t_not_gen_time`, `signature_invalid`, `not_issued_by_pinned_tsa`, …); openssl that cannot run raises
+  `TimeAnchorNotRun`, never a refusal. `cra seal --print-imprint` prints what to stamp (it needs `--tip-key`),
+  `--tsa-hash` chooses SHA-256 (default) or SHA3-256, `--tsa-cert PEM` verifies the new seal against a pinned TSA.
+  **Changed:** a token over the bare digest, the only shape `cra seal` accepted from 0.9.0 to 0.11.1, is refused at
+  seal (exit 1, nothing recorded); seals written before verify as before without a function, and are refused by the
+  new function with `digest_only_binding`. Measured on 15/11/2026: freetsa.org and timestamp.digicert.com answer
+  `Rejected` to a SHA3-256 query and `Granted` to a SHA-256 one, so the SHA3-256-only shape of 0.9.0–0.11.1 could not
+  be used with them; SHA-256 is admitted. The tests that injected `lambda r: True` (`test_council_r2.py`,
+  `test_council_r3.py`) now seal with a TSA made on the machine and inject the new function; 12 of 12 mutants of the
+  new lines are killed. Proposed by Athena's review of 15/11/2026.
 - **Supply chain of the release, measurable by third parties.** `release-build.yml` builds the wheel and the sdist on a
   GitHub-hosted runner from the tag, with the build front-end and setuptools pinned by hash
   (`.github/build-requirements.txt`, `pip install --require-hashes`, `python -m build --no-isolation`), and signs SLSA

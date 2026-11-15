@@ -310,7 +310,10 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--aws-kms-key-id", help="KMS key id/ARN (key spec ECC_NIST_EDWARDS25519); credentials from AWS_* env or --aws-creds-file")
     s.add_argument("--aws-region"); s.add_argument("--aws-creds-file", help="KEY=VALUE file with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY [/ AWS_SESSION_TOKEN]")
     s = sub.add_parser("seal", help="long-term seal of a pack digest (crypto-agile archive timestamp); --tip-key = the sealing identity"); common(s)
-    s.add_argument("--pack-sha3", required=True); s.add_argument("--ts-source", default="asserted", choices=("asserted", "rfc3161", "ots")); s.add_argument("--token-b64", help="RFC 3161 / OTS token, standard base64 (required when --ts-source is not 'asserted'; its shape is checked, its signature and time are not: the verdict stays temporal_trust ASSUMED)")
+    s.add_argument("--pack-sha3", required=True); s.add_argument("--ts-source", default="asserted", choices=("asserted", "rfc3161", "ots")); s.add_argument("--token-b64", help="RFC 3161 / OTS token, standard base64 (required when --ts-source is not 'asserted'); an RFC 3161 token must stamp the record's anchor imprint (--print-imprint, spec/TIME_ANCHOR.md) and gives the record its time")
+    s.add_argument("--print-imprint", action="store_true", help="print the hex digest a TSA must stamp for this seal (spec/TIME_ANCHOR.md §2) and record nothing; needs --tip-key (the sealing key)")
+    s.add_argument("--tsa-hash", default="sha256", choices=("sha256", "sha3-256"), help="hash of the imprint for --print-imprint (default sha256: public TSAs refuse sha3-256)")
+    s.add_argument("--tsa-cert", action="append", metavar="PEM", help="pin a TSA certificate (or a CA above it): the seal's RFC 3161 tokens are verified against it (signature, TSA, time, binding) and temporal_trust can be 'verified'; repeat for several")
     s.add_argument("--renew", help="JSON file with the previous seal (lte dict) to extend the chain")
     s = sub.add_parser("attest", help="sign an in-toto statement (predicate art14-filing v0.2 or v0.1, DSSE, Ed25519) about a notice drop file and its ledger entry",
                        description="Writes a DSSE envelope (payloadType application/vnd.in-toto+json) whose Statement names the drop file's "
@@ -508,11 +511,38 @@ def _main(argv: List[str] = None) -> int:
         lk = _locker(a)
         prev = _load_json(a.renew) if a.renew else None
         from .rfc3161_token import TokenRefused
+        if a.print_imprint:
+            if a.tip_key is None:
+                p.error("seal --print-imprint: give --tip-key (the imprint names the sealing key; an ephemeral key is made at seal time)")
+            try:
+                imp = lk.longterm_anchor_imprint(a.pack_sha3, previous=prev, tsa_hash=a.tsa_hash)
+            except ValueError as e:
+                _p({"imprint": None, "reasons": [str(e)[:400]]}); return 1
+            _p({"anchor": "cra-lta-time-anchor/1", "tsa_hash": a.tsa_hash, "imprint_hex": imp,
+                "request": f"openssl ts -query -digest {imp} -{a.tsa_hash} -cert"}); return 0
+        try:
+            from .time_anchor import _pins_pem
+            if a.tsa_cert is not None:
+                _pins_pem(a.tsa_cert)
+        except ValueError as e:
+            p.error(f"seal --tsa-cert: {e}")
         try:
             d = lk.seal_longterm(a.pack_sha3, ts_source=a.ts_source, previous=prev, token_b64=a.token_b64)
         except TokenRefused as e:
             _p({"sealed": False, "reasons": [str(e)[:400]]}); return 1
-        v = LongTermEvidence.from_dict(d).verify(now=datetime.now(timezone.utc).timestamp())
+        lte = LongTermEvidence.from_dict(d)
+        fn = None
+        if a.tsa_cert:
+            from .time_anchor import make_timestamp_trust_fn
+            fn = make_timestamp_trust_fn(lte, a.tsa_cert)
+        now = datetime.now(timezone.utc).timestamp()
+        try:
+            v = lte.verify(now=now, timestamp_trust_fn=fn)
+        except OSError as e:   # TimeAnchorNotRun: the seal is recorded; the time anchor could not be checked here
+            v = lte.verify(now=now)
+            _p({"seal": d, "verify": v, "time_anchor_not_run": str(e)[:300]}); return 1
+        if fn is not None:
+            v["time_anchor_log"] = fn.log
         _p({"seal": d, "verify": v})
         return 0 if v["ok"] else 1
     if a.cmd == "verify":

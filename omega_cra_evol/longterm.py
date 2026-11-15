@@ -18,10 +18,12 @@ from __future__ import annotations
 # The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
 # release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
 __all__ = [
-    "AlgorithmPolicy", "DEFAULT_HASH", "HASHES", "LongTermEvidence", "NIST_IR_8547_DEPRECATED_AFTER",
+    "ANCHOR", "ANCHOR_HASHES", "ANCHOR_OWN", "AlgorithmPolicy", "DEFAULT_HASH", "HASHES", "LongTermEvidence",
+    "NIST_IR_8547_DEPRECATED_AFTER",
     "NIST_IR_8547_DISALLOWED_AFTER", "REGISTRY", "Signer", "register_algorithm", "register_hash",
 ]
 
+import base64
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -30,6 +32,12 @@ from typing import Callable, Dict, List, Optional
 
 HASHES: Dict[str, Callable[[bytes], "hashlib._Hash"]] = {"sha3-256": hashlib.sha3_256, "sha2-512": hashlib.sha512}
 DEFAULT_HASH = "sha3-256"
+
+# spec/TIME_ANCHOR.md (cra-lta-time-anchor/1, 15/11/2026): what the RFC 3161 token of a record stamps. Proposed by
+# Athena's review of 15/11/2026.
+ANCHOR = "cra-lta-time-anchor/1"
+ANCHOR_OWN = ("alg", "anchor", "ephemeral_key", "hash", "pub", "rehash", "ts_source")   # §2: the fields before the token
+ANCHOR_HASHES: Dict[str, Callable[[bytes], "hashlib._Hash"]] = {"sha256": hashlib.sha256, "sha3-256": hashlib.sha3_256}
 
 
 def register_hash(name: str, ctor: Callable) -> None:
@@ -124,20 +132,75 @@ class LongTermEvidence:
         own = {k: v for k, v in current.items() if k != "sig"}
         return bytes.fromhex(_digest(hash_alg, _canon([self.evidence_digest, self.records[:prefix_len], own]).encode()))
 
-    def seal(self, signer: Signer, t: float, ts_source: str = "asserted", stronger_digest: Optional[str] = None,
+    def _anchor_own(self, signer: Signer, hash_alg: str, stronger_digest: Optional[str]) -> Dict:
+        return {"alg": signer.alg, "anchor": ANCHOR, "ephemeral_key": signer.ephemeral, "hash": hash_alg,
+                "pub": signer.pub, "rehash": stronger_digest or "", "ts_source": "rfc3161"}
+
+    def anchor_imprint_bytes(self, index: int, own: Dict, tsa_hash: str) -> bytes:
+        """spec/TIME_ANCHOR.md §2: H("cra-lta-time-anchor/1\n" || canon([D, records[0..index-1], own])), own reduced to
+        ANCHOR_OWN."""
+        if tsa_hash not in ANCHOR_HASHES:
+            raise ValueError(f"tsa_hash must be one of {sorted(ANCHOR_HASHES)}")
+        body = _canon([self.evidence_digest, self.records[:index], {k: own.get(k) for k in ANCHOR_OWN}])
+        return ANCHOR_HASHES[tsa_hash]((ANCHOR + "\n" + body).encode("utf-8")).digest()
+
+    def anchor_imprint(self, signer: Signer, hash_alg: str = DEFAULT_HASH, stronger_digest: Optional[str] = None,
+                       tsa_hash: str = "sha256") -> str:
+        """The hex digest to ask a TSA to stamp for the NEXT record sealed by `signer` (spec/TIME_ANCHOR.md §2, §4):
+        request it with `tsa_hash` (sha256 or sha3-256), then call `seal(signer, None, "rfc3161", ..., token_b64=...)`
+        with the same arguments."""
+        return self.anchor_imprint_bytes(len(self.records), self._anchor_own(signer, hash_alg, stronger_digest), tsa_hash).hex()
+
+    def seal(self, signer: Signer, t: Optional[float], ts_source: str = "asserted", stronger_digest: Optional[str] = None,
              hash_alg: str = DEFAULT_HASH, token_b64: Optional[str] = None) -> Dict:
-        """ts_source is one of "asserted", "rfc3161", "ots"; "rfc3161" and "ots" REQUIRE the token, whose SHAPE is checked
-        (rfc3161_token.check_token: an RFC 3161 TimeStampResp / TimeStampToken with id-ct-TSTInfo and a SHA3-256
-        messageImprint over the sealed digest; an OpenTimestamps file header), then stored (and digested) with the
-        record. Its signature, its TSA certificate and its time are verified only by a `timestamp_trust_fn` that the
-        caller of `verify` injects: this package ships none, so `cra seal` and `cra verify` never verify a token (the
-        verdict says `temporal_trust`: "ASSUMED …")."""
-        from .rfc3161_token import check_token
-        check_token(ts_source, token_b64, self.evidence_digest)
+        """ts_source is one of "asserted", "rfc3161", "ots"; "rfc3161" and "ots" REQUIRE the token. An "ots" token's SHAPE
+        is checked (the OpenTimestamps file header). An "rfc3161" token (spec/TIME_ANCHOR.md, since the release after
+        0.11.1) must be a TimeStampResp / TimeStampToken whose messageImprint is `anchor_imprint` of this record
+        (SHA-256 or SHA3-256 over the digest, every previous record and this record's own fields); `t` is taken from
+        its genTime (`t` None, or equal to it); the record carries `anchor`. A token over the bare digest, the shape of
+        0.9.0-0.11.1, is refused. Nothing here verifies the token's signature or TSA: that is the `timestamp_trust_fn`
+        of `verify` (omega_cra_evol.time_anchor.make_timestamp_trust_fn, with the TSA certificates the verifier
+        pins)."""
+        from .rfc3161_token import OID_SHA256, OID_SHA3_256, TokenRefused, check_token, gen_time_seconds, rfc3161_tstinfo
         rehash = stronger_digest or ""
+        anchor = None
+        if ts_source == "rfc3161":
+            import binascii
+            if not isinstance(token_b64, str) or not token_b64:
+                raise TokenRefused("ts_source 'rfc3161' needs the timestamp token (token_b64)")
+            try:
+                raw = base64.b64decode(token_b64.encode("ascii"), validate=True)
+            except (binascii.Error, ValueError, UnicodeEncodeError):
+                raise TokenRefused("token_b64 is not standard base64") from None
+            try:
+                alg_oid, hashed, gen = rfc3161_tstinfo(raw)
+            except TokenRefused as e:
+                raise TokenRefused(f"the token is not an RFC 3161 TimeStampResp / TimeStampToken: {e}") from None
+            except (IndexError, ValueError) as e:
+                raise TokenRefused(f"the token is not an RFC 3161 TimeStampResp / TimeStampToken: {type(e).__name__}") from None
+            name = {OID_SHA256: "sha256", OID_SHA3_256: "sha3-256"}.get(alg_oid)
+            own = self._anchor_own(signer, hash_alg, stronger_digest)
+            if name is None:
+                raise TokenRefused(f"the token's hash algorithm {alg_oid} is not SHA-256 or SHA3-256 (spec/TIME_ANCHOR.md §2)")
+            want = self.anchor_imprint_bytes(len(self.records), own, name)
+            if hashed != want:
+                why = (" (it stamps the bare digest: the shape of 0.9.0-0.11.1, refused since spec/TIME_ANCHOR.md)"
+                       if hashed == bytes.fromhex(self.evidence_digest) else "")
+                raise TokenRefused(f"the token's imprint {hashed.hex()[:64]} is not this record's anchor imprint {want.hex()} "
+                                   f"({name}, spec/TIME_ANCHOR.md §2){why}")
+            gt = gen_time_seconds(gen)
+            if t is not None and float(t) != gt:
+                raise TokenRefused(f"t {float(t)!r} is not the token's genTime {gen} ({gt!r}): spec/TIME_ANCHOR.md §3")
+            t, anchor = gt, ANCHOR
+        else:
+            check_token(ts_source, token_b64, self.evidence_digest)
+            if t is None:
+                raise ValueError("t is required unless ts_source is 'rfc3161' (where it is the token's genTime)")
         # t is stored as repr(float): Python's repr is the shortest round-trip string, float(repr(x)) == x exactly
         rec = {"alg": signer.alg, "hash": hash_alg, "t": repr(float(t)), "pub": signer.pub, "ts_source": ts_source,
                "rehash": rehash, "ephemeral_key": signer.ephemeral}
+        if anchor is not None:
+            rec["anchor"] = anchor
         if token_b64:
             rec["token_b64"] = token_b64
             rec["token_sha3"] = hashlib.sha3_256(token_b64.encode()).hexdigest()

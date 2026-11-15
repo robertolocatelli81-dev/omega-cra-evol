@@ -216,8 +216,11 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
 - **Identifiers and case reference (v0.2):** the CVE / EUVD identifiers are compared with the notice only when the
   notice file is given; a case reference is the signer's declaration, which no file can check.
 - **Time:** the ledger orders records; it is an objective time anchor only with an attached RFC 3161 / OpenTimestamps
-  token, which this tool stores after checking its shape (`cra seal`: an RFC 3161 token must carry a SHA3-256 imprint
-  of the sealed digest) and does not verify (signature, TSA certificate, time: `temporal_trust` stays ASSUMED).
+  token. An RFC 3161 token of a seal must stamp that seal record (`cra seal --print-imprint`; the digest, the chain
+  before it and the record's own fields, `spec/TIME_ANCHOR.md`) and gives the record its time; it is verified —
+  signature, binding, time, TSA — only against a TSA certificate you pin (`cra seal --tsa-cert`, or
+  `omega_cra_evol.time_anchor.make_timestamp_trust_fn`); without a pin `temporal_trust` stays ASSUMED. Revocation of
+  the TSA certificate is not checked. OpenTimestamps tokens are stored after a shape check and not verified.
 - **Verifiers:** the JavaScript, Go and Rust verifiers and cryptovalid's are by the same author as this tool; they are
   separate implementations of a written profile, not separate parties.
 
