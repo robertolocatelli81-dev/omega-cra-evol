@@ -54,6 +54,8 @@ ID_FORMS = {"cve": re.compile(r"CVE-[0-9]{4}-[0-9]{4,19}"), "euvd": re.compile(r
 ID_FIELDS = (("cve", "cve_id"), ("euvd", "euvd_id"))   # scheme order of §2.1 = the order of the notice fields
 NOT_CHECKED = "declared, not checked (no drop file given)"
 NOT_CHECKABLE = "declared by the signer, not checkable"
+NOT_EVALUATED = "not_evaluated"
+PREDICATE_TYPE_MAX = 200   # a declared predicateType is echoed in the receipt up to this many characters
 _TS = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _B64_STD = re.compile(r"[A-Za-z0-9+/]*={0,2}")
@@ -486,7 +488,9 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
                     ledger_path: Optional[str] = None) -> Dict[str, Any]:
     from .signing import weak_ed25519_key
     reasons: List[Dict[str, str]] = []
-    out: Dict[str, Any] = {"envelope": os.path.basename(env_path), "predicate_type": TYPE_URI, "verified": False,
+    # predicate_type: the statement's own declaration once its payload has been read after a trusted signature, else
+    # "not_evaluated" — never a default TypeURI that a reader would take for the envelope's (v0.2 §5, amended 15/11/2026)
+    out: Dict[str, Any] = {"envelope": os.path.basename(env_path), "predicate_type": NOT_EVALUATED, "verified": False,
                            "trusted": False, "assessed": True, "signatures": [], "signatures_not_verified": [], "envelope_unrecognized": [],
                            "statement_unrecognized": [], "statement": "not_evaluated",
                            "drop": "not_evaluated", "ledger": "not_evaluated",
@@ -599,7 +603,7 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
     # §3: the exact verified bytes, never the envelope re-parsed
     st, errs, unrec = check_statement(payload)
     t = _type_read(payload)
-    if t is not None:      # v0.2 §5: the TypeURI of the statement once read; v0.1's otherwise (v0.1 receipts unchanged)
+    if t is not None:      # v0.2 §5: the TypeURI the statement declares, once read (also one that is not defined here)
         out["predicate_type"] = t
     out["statement_unrecognized"] = unrec
     if errs:
@@ -624,13 +628,13 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
 
 
 def _type_read(payload: bytes) -> Optional[str]:
-    """the predicateType of a payload, when it parses and is one of the defined TypeURIs"""
+    """the predicateType a payload declares, when it parses and is a string (truncated to PREDICATE_TYPE_MAX characters)"""
     try:
         st = _strict_json(payload, "payload")
     except ValueError:
         return None
     t = st.get("predicateType") if isinstance(st, dict) else None
-    return t if type(t) is str and t in VERSIONS else None
+    return t[:PREDICATE_TYPE_MAX] if type(t) is str else None
 
 
 def _check_rule5(p: Dict[str, Any], pr: Dict[str, Any], out: Dict[str, Any], reasons: List[Dict[str, str]]) -> None:

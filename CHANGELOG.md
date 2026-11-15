@@ -48,6 +48,12 @@ SPDX maintainers found to fail their own validation (spdx/spdx-spec#1318).
    15/11/2026) accepts an array that contains the 3.1 context. A 3.1 document has no schema here today (rule 2); when
    3.1 is released its schema becomes the rule for 3.1 documents, not for 3.0.1 ones.
 
+Time (measured 15/11/2026, CPython 3.12, jsonschema 4.26.0, a loaded host): an SPDX 2.3 document of 17 MB (jaeger's
+release SBOM, 10,281 packages) is checked in about 4 s; the 3.0.1 schema costs much more per element, because every
+`@graph` element is matched against every class of the schema with `unevaluatedProperties`: a synthetic 3.0.1 document
+with 1,000 packages took 14 s, with 5,000 packages 130 s (under a varying load: the growth between the two is not
+established as linear).
+
 Why: measured on 15/11/2026 on the SPDX JSON files of other projects downloaded for the test round of 14/11 (their
 own examples, fixtures and expected outputs): of 138 SPDX 2.2 / 2.3 documents, 34 (32 distinct) fail the schema of their
 version, among them documents their authors call invalid (spdx/tools-java `BadJSON.spdx.json`, spdx/tools-python

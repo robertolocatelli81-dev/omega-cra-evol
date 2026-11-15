@@ -4,8 +4,8 @@ mutant that the earlier tests let live:
 - the CVE year is exactly four digits (mutant `{4}` -> `{2,4}` in ID_FORMS["cve"]);
 - build_statement refuses a case reference for v0.1, an object with other keys, and surrogates at both ends of the
   range (mutants: the case-reference block skipped, `or` -> `and`, `<=` -> `<`);
-- the receipt of a statement with an undefined TypeURI keeps the v0.1 TypeURI, and a non-string TypeURI does not crash
-  (mutant `and` -> `or` in _type_read)."""
+- the receipt of a statement with an undefined TypeURI names it (since 15/11/2026, v0.2 §5 amended: before, it kept
+  the v0.1 TypeURI), a non-string TypeURI gives "not_evaluated" and does not crash (mutant `and` -> `or` in _type_read)."""
 import base64, importlib.util, json, os, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,14 +85,14 @@ class ReceiptTypeURI(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
-    def test_undefined_type_keeps_the_v01_type(self):
+    def test_undefined_type_is_named_never_replaced_by_v01(self):
         base = _payload("valid_no_identifiers_without_drop.intoto.json")
         for t in (A.TYPE_URI_V02.replace("v0.2", "v0.3"), ["x"], {"a": 1}, 7, None):
             st = dict(base, predicateType=t)
             with self.subTest(t=t):
                 r = self.verify(st)
                 self.assertFalse(r["verified"])
-                self.assertEqual(r["predicate_type"], A.TYPE_URI)
+                self.assertEqual(r["predicate_type"], t if isinstance(t, str) else "not_evaluated")
                 self.assertIn("predicate_type", [x["code"] for x in r["reasons"]])
         self.assertEqual(self.verify(base)["predicate_type"], A.TYPE_URI_V02)      # control: a defined type is shown
 

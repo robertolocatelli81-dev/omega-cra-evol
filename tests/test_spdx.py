@@ -1,6 +1,7 @@
 """SPDX ingest on the OFFICIAL spdx/spdx-examples documents (vendored in tests/fixtures/spdx): 2.3 JSON with purl
 and checksums, 2.3 enriched (NOASSERTION licences, no versions), 3.0 JSON-LD with packageUrl and licence relationships,
 3.0 enriched with suppliedBy/verifiedUsing. The described product is never a component."""
+import importlib.util
 import json, os, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,7 +52,8 @@ class TestSPDX(unittest.TestCase):
         lk = EvidenceLocker(os.path.join(d, "l.jsonl"), "p", "1")
         src = os.path.join(FX, "spdx-2.3-dependency.spdx.json")
         e = lk.record_sbom(sbom_from_spdx(src, "p", "1"), source_path=src)
-        self.assertTrue(e["data"]["sbom_floor_met"])
+        # floor met only when the official schema could be checked (SPDX rule 3: without jsonschema, "not checked")
+        self.assertEqual(e["data"]["sbom_floor_met"], importlib.util.find_spec("jsonschema") is not None)
         self.assertEqual(e["data"]["sbom"]["specVersion"], "1.6")   # exported as schema-valid CycloneDX
 
 
@@ -69,15 +71,18 @@ class TestSPDXCouncil(unittest.TestCase):
             {"@type": "software_Package", "@id": "urn:pkg:dep", "name": "dep", "software_packageVersion": "2.0",
              "software_packageUrl": "pkg:npm/dep@2.0", "verifiedUsing": [{"@type": "Hash", "algorithm": "sha256", "hashValue": "ab" * 32}]},
             {"@type": "Relationship", "@id": "urn:r1", "relationshipType": "hasConcludedLicense", "from": "urn:pkg:dep", "to": ["https://spdx.org/licenses/MIT"]}]}
-        r = sbom_from_spdx(self._w(doc), "p", "1")
+        if importlib.util.find_spec("jsonschema"):                                 # not conformant to the 3.0.1 schema
+            self.assertRaises(ValueError, sbom_from_spdx, self._w(doc), "p", "1")
+        r = sbom_from_spdx(self._w(doc), "p", "1", allow_nonconformant=True)     # the parser's reading, as before
         self.assertEqual([c.name for c in r.components], ["dep"])           # the rootElement product is not a component
         self.assertEqual(r.components[0].license, "MIT"); self.assertEqual(r.components[0].sha256, "ab" * 32)
 
     def test_no_root_declared_is_said_and_non_spdx_graph_refused(self):
         doc = {"@graph": [{"type": "software_Package", "spdxId": "urn:a", "name": "a", "software_packageVersion": "1"}]}
-        self.assertIn(":no-root-declared", sbom_from_spdx(self._w(doc), "p", "1").depth)
-        with self.assertRaises(ValueError):
-            sbom_from_spdx(self._w({"@graph": [{"@id": "item1", "name": "Example"}]}), "p", "1")
+        self.assertIn(":no-root-declared", sbom_from_spdx(self._w(doc), "p", "1", allow_nonconformant=True).depth)
+        for allow in (False, True):
+            with self.assertRaises(ValueError):
+                sbom_from_spdx(self._w({"@graph": [{"@id": "item1", "name": "Example"}]}), "p", "1", allow_nonconformant=allow)
 
     def test_spdx2_described_by_supplier_fallback_and_bad_checksum(self):
         doc = {"spdxVersion": "SPDX-2.3", "packages": [
@@ -85,16 +90,26 @@ class TestSPDXCouncil(unittest.TestCase):
             {"name": "lib", "SPDXID": "SPDXRef-L", "versionInfo": "2", "supplier": "NOASSERTION", "originator": "Organization: Acme (Bar) Ltd (x@y.z)",
              "checksums": [{"algorithm": "SHA256", "checksumValue": "ZZ" * 32}]}],
             "relationships": [{"spdxElementId": "SPDXRef-P", "relationshipType": "DESCRIBED_BY", "relatedSpdxElement": "SPDXRef-DOCUMENT"}]}
-        r = sbom_from_spdx(self._w(doc), "p", "1")
+        r = sbom_from_spdx(self._w(doc), "p", "1", allow_nonconformant=True)   # hand-written, not schema-conformant
         self.assertEqual([c.name for c in r.components], ["lib"])
         self.assertEqual(r.components[0].supplier, "Acme (Bar) Ltd"); self.assertEqual(r.components[0].sha256, "")
 
     def test_floor_not_met_by_noassertion_versions(self):
         lk = EvidenceLocker(os.path.join(tempfile.mkdtemp(), "l.jsonl"), "p", "1")
-        doc = {"spdxVersion": "SPDX-2.3", "packages": [{"name": "lib", "SPDXID": "SPDXRef-L"}], "documentDescribes": []}
+        # conformant to the 2.3 schema (so only the NOASSERTION version keeps the floor unmet)
+        doc = {"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT", "dataLicense": "CC0-1.0", "name": "d",
+               "documentNamespace": "https://example.org/d", "creationInfo": {"created": "2026-11-15T00:00:00Z", "creators": ["Tool: t"]},
+               "packages": [{"name": "lib", "SPDXID": "SPDXRef-L", "downloadLocation": "NOASSERTION"}], "documentDescribes": []}
+        src = self._w(doc)
+        rec = sbom_from_spdx(src, "p", "1")
+        e = lk.record_sbom(rec, source_path=src)
+        if not rec.source["schema_check"].startswith("not checked"):     # without jsonschema the floor is unmet anyway
+            self.assertEqual(rec.source["schema_check"], "conformant to spdx-schema-v2.3.json")
+        self.assertFalse(e["data"]["sbom_floor_met"])
+        doc["packages"][0]["versionInfo"] = "1.0"                        # control: a real version meets it
         src = self._w(doc)
         e = lk.record_sbom(sbom_from_spdx(src, "p", "1"), source_path=src)
-        self.assertFalse(e["data"]["sbom_floor_met"])
+        self.assertEqual(e["data"]["sbom_floor_met"], not rec.source["schema_check"].startswith("not checked"))
 
 
 if __name__ == "__main__":

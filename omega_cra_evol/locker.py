@@ -24,7 +24,7 @@ from .outputs import OutputNotWritten, TipNotWritten, commit_tmp, refuse_directo
 from .canonical import deep_recursion, floatfree, sha3_hex
 from .ledger import Ledger
 from .longterm import AlgorithmPolicy, LongTermEvidence, Signer
-from .sbom import MAX_SOURCE_BYTES, SBOMRecord, reingest, resolved_components
+from .sbom import INGESTED_FORMATS, MAX_SOURCE_BYTES, SBOMRecord, reingest, resolved_components
 from .srp_notice import SRPNotice
 from .vuln import VulnerabilityRecord, parse_utc
 
@@ -151,8 +151,9 @@ class EvidenceLocker:
                              # conservative by design: zero RESOLVED components (a declared-but-NOT-INSTALLED dependency
                              # is not one) never EVIDENCES the Annex I floor, even for a product that truly has no
                              # dependencies (state that in the SBOM's note instead)
-                             # and an ingested CycloneDX document must be conformant to its official schema (rule 2/3)
-                             "sbom_floor_met": resolved > 0 and (source.get("format") != "cyclonedx-json" or
+                             # and an ingested CycloneDX or SPDX document must be conformant to its official schema
+                             # (CHANGELOG, Unreleased: CycloneDX rules 2/3, SPDX rules 1-4)
+                             "sbom_floor_met": resolved > 0 and (source.get("format") not in INGESTED_FORMATS or
                                                                  str(source.get("schema_check", "")).startswith("conformant to "))})
         except Exception:
             if created:                          # undo this call's copy — unless a concurrent record already relies on it (round 11, reviewer 2)

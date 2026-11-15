@@ -30,4 +30,5 @@ Homepage = "https://github.com/robertolocatelli81-dev/omega-cra-evol"
 packages = ["omega_cra_evol", "cra_evidence"]   # cra_evidence: the earlier import name, a deprecated alias (removed not before 2027-03-31)
 
 [tool.setuptools.package-data]
-omega_cra_evol = ["data/*.json", "data/cyclonedx/*.json", "data/cyclonedx/LICENSE", "data/cyclonedx/SOURCES.txt"]
+omega_cra_evol = ["data/*.json", "data/cyclonedx/*.json", "data/cyclonedx/LICENSE", "data/cyclonedx/SOURCES.txt",
+                  "data/spdx/*.json", "data/spdx/LICENSE-*", "data/spdx/SOURCES.txt"]

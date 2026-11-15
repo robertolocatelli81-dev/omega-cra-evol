@@ -438,7 +438,7 @@ class TestSourceStore(unittest.TestCase):
             p = os.path.join(self.d, f"tc{i}.json")
             with open(p, "w") as f:
                 json.dump(doc, f)
-            r = sbom_from_spdx(p, "tiny-cra-sample", "1.0.0")            # a record, or ValueError — never TypeError
+            r = sbom_from_spdx(p, "tiny-cra-sample", "1.0.0", allow_nonconformant=True)   # a record, or ValueError — never TypeError
             self.assertIsInstance(r.components, list)
             for c in r.components:                                        # a hostile non-string field is never stringified into data
                 for v in (c.name, c.version, c.purl, c.license, c.supplier, c.cpe):

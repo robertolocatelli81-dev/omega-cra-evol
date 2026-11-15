@@ -16,6 +16,7 @@ dependencies only where they are known), declared as such and validated against 
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -167,6 +168,7 @@ def _license_entry(lic: str) -> Dict[str, Any]:
 
 
 CYCLONEDX_EXPORT_VERSIONS = {"1.6", "1.7"}
+INGESTED_FORMATS = frozenset({"cyclonedx-json", "spdx-json", "spdx-jsonld"})   # source.format of a generator document: floor only when "conformant to"
 MAX_SOURCE_BYTES = 256 << 20   # a generator document above this is refused unread, at ingest and by every verifier
 CYCLONEDX_COMPONENT_TYPES = {"application", "framework", "library", "container", "platform", "operating-system", "device",
                              "device-driver", "firmware", "file", "machine-learning-model", "data", "cryptographic-asset"}
@@ -406,6 +408,28 @@ def _load_document(path: str, raw: Optional[bytes] = None) -> Tuple[bytes, Any]:
         raise ValueError("document malformed: JSON nested too deep") from None
     except UnicodeDecodeError:
         raise ValueError("document malformed: not UTF-8") from None
+    except json.JSONDecodeError as e:          # not JSON at all: say which format it is when it is a known one
+        raise ValueError(_not_json_reason(raw, e)) from None
+
+
+# What `cra sbom` reads is JSON; a document in another serialisation is named in the refusal (CHANGELOG, Unreleased,
+# "a refused document exits 2 with one line"). Recognised from the start of the text, never parsed.
+_SPDX_TAG_VALUE = re.compile(r"\A(?:[ \t]*(?:#[^\n]*)?\r?\n)*[ \t]*SPDXVersion:[ \t]*SPDX-")
+
+
+def _not_json_reason(raw: bytes, err: "json.JSONDecodeError") -> str:
+    head = raw[:4096].decode("utf-8", "replace")
+    if head.startswith("\ufeff"):
+        return "document malformed: not JSON (it starts with a byte order mark, U+FEFF)"
+    if _SPDX_TAG_VALUE.match(head):
+        return "SPDX tag-value is not supported: give the SPDX JSON document"
+    if head.lstrip().startswith("<"):
+        if "cyclonedx.org/schema/bom" in head:
+            return "CycloneDX XML is not supported: give the CycloneDX JSON document"
+        if "rdf:RDF" in head and "spdx.org/rdf" in head:
+            return "SPDX RDF/XML is not supported: give the SPDX JSON document"
+        return "document malformed: not JSON (XML)"
+    return f"document malformed: not JSON ({err.msg} at line {err.lineno} column {err.colno})"
 
 
 def _fingerprint_bytes(raw: bytes, path: str) -> Dict[str, Any]:
@@ -465,6 +489,59 @@ _CDX_SCHEMA_VERSIONS = ("1.2", "1.3", "1.4", "1.5", "1.6", "1.7")
 _FORMATS_NEEDED = ("date", "date-time", "idn-email", "iri-reference", "uri")
 _VALIDATORS: Dict[str, Any] = {}
 
+# `iri-reference`: RFC 3987 §2.2 ABNF (with the rules it takes from RFC 3986) as one regular expression, matched whole.
+# jsonschema[format-nongpl] calls rfc3987-syntax, an Earley parser: ~0.1 s per URL, 220 s for an SBOM with 2,476 URLs
+# (CHANGELOG, Unreleased). Each repetition below is over characters that the next token cannot start with ("/", "?", "#",
+# "@", ":", "]" end them), so a failed match backtracks a bounded number of steps per character: linear time.
+_UCSCHAR = ("\u00a0-\ud7ff\uf900-\ufdcf\ufdf0-\uffef"
+            "\U00010000-\U0001fffd\U00020000-\U0002fffd\U00030000-\U0003fffd\U00040000-\U0004fffd"
+            "\U00050000-\U0005fffd\U00060000-\U0006fffd\U00070000-\U0007fffd\U00080000-\U0008fffd"
+            "\U00090000-\U0009fffd\U000a0000-\U000afffd\U000b0000-\U000bfffd\U000c0000-\U000cfffd"
+            "\U000d0000-\U000dfffd\U000e1000-\U000efffd")
+_IPRIVATE = "\ue000-\uf8ff\U000f0000-\U000ffffd\U00100000-\U0010fffd"
+_IUNRESERVED = "A-Za-z0-9\\-._~" + _UCSCHAR
+_SUB_DELIMS = "!$&'()*+,;="
+_PCT = "%[0-9A-Fa-f]{2}"
+_IPCHAR = f"(?:[{_IUNRESERVED}{_SUB_DELIMS}:@]|{_PCT})"
+_H16 = "[0-9A-Fa-f]{1,4}"
+_DEC_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])"
+_IPV4 = f"{_DEC_OCTET}\\.{_DEC_OCTET}\\.{_DEC_OCTET}\\.{_DEC_OCTET}"
+_LS32 = f"(?:{_H16}:{_H16}|{_IPV4})"
+_IPV6 = "(?:" + "|".join([                              # the nine forms of RFC 3986 §3.2.2, in its order
+    f"(?:{_H16}:){{6}}{_LS32}",
+    f"::(?:{_H16}:){{5}}{_LS32}",
+    f"(?:{_H16})?::(?:{_H16}:){{4}}{_LS32}",
+    f"(?:(?:{_H16}:){{0,1}}{_H16})?::(?:{_H16}:){{3}}{_LS32}",
+    f"(?:(?:{_H16}:){{0,2}}{_H16})?::(?:{_H16}:){{2}}{_LS32}",
+    f"(?:(?:{_H16}:){{0,3}}{_H16})?::{_H16}:{_LS32}",
+    f"(?:(?:{_H16}:){{0,4}}{_H16})?::{_LS32}",
+    f"(?:(?:{_H16}:){{0,5}}{_H16})?::{_H16}",
+    f"(?:(?:{_H16}:){{0,6}}{_H16})?::"]) + ")"
+_IPVFUTURE = f"[vV][0-9A-Fa-f]+\\.[A-Za-z0-9\\-._~{_SUB_DELIMS}:]+"     # "v" is case-insensitive (RFC 2234 §2.3)
+_IHOST = f"(?:\\[(?:{_IPV6}|{_IPVFUTURE})\\]|(?:[{_IUNRESERVED}{_SUB_DELIMS}]|{_PCT})*)"   # IPv4address is a subset of ireg-name
+_IAUTHORITY = f"(?:(?:[{_IUNRESERVED}{_SUB_DELIMS}:]|{_PCT})*@)?{_IHOST}(?::[0-9]*)?"
+_IPATH_ABEMPTY = f"(?:/{_IPCHAR}*)*"
+_QUERY_FRAGMENT = f"(?:\\?(?:{_IPCHAR}|[{_IPRIVATE}/?])*)?(?:#(?:{_IPCHAR}|[/?])*)?"
+_IRI = (f"[A-Za-z][A-Za-z0-9+\\-.]*:(?://{_IAUTHORITY}{_IPATH_ABEMPTY}|/(?:{_IPCHAR}+{_IPATH_ABEMPTY})?"
+        f"|{_IPCHAR}+{_IPATH_ABEMPTY}|){_QUERY_FRAGMENT}")
+_IRELATIVE_REF = (f"(?://{_IAUTHORITY}{_IPATH_ABEMPTY}|/(?:{_IPCHAR}+{_IPATH_ABEMPTY})?"
+                  f"|(?:[{_IUNRESERVED}{_SUB_DELIMS}@]|{_PCT})+{_IPATH_ABEMPTY}|){_QUERY_FRAGMENT}")
+IRI_REFERENCE = re.compile(f"(?:{_IRI}|{_IRELATIVE_REF})")
+
+
+def is_iri_reference(instance: Any) -> bool:
+    """JSON Schema `iri-reference`: RFC 3987 §2.2 `IRI-reference`. A non-string is not this format's business (True)."""
+    return not isinstance(instance, str) or IRI_REFERENCE.fullmatch(instance) is not None
+
+
+def _format_checker(jsonschema: Any) -> Any:
+    """jsonschema's draft-07 format checker with `iri-reference` replaced by is_iri_reference — a copy: the library's
+    own checker is never modified (another caller in the same process keeps jsonschema's behaviour)."""
+    fc = copy.copy(jsonschema.Draft7Validator.FORMAT_CHECKER)
+    fc.checkers = dict(fc.checkers)
+    fc.checkers["iri-reference"] = (is_iri_reference, ())
+    return fc
+
 
 def _jsonschema():
     import jsonschema                      # noqa: F401  (the extra [schema])
@@ -496,7 +573,7 @@ def _cdx_validator(spec: str):
     # with the same equality as jsonschema (_utils.equal: true is not 1, 1 equals 1.0, objects and arrays by value)
     cls = jsonschema.validators.extend(jsonschema.Draft7Validator, {"uniqueItems": _unique_items})
     try:
-        v = cls(docs[f"bom-{spec}.schema.json"], registry=Registry().with_resources(pairs), format_checker=checker)
+        v = cls(docs[f"bom-{spec}.schema.json"], registry=Registry().with_resources(pairs), format_checker=_format_checker(jsonschema))
     except TypeError as e:                 # a jsonschema older than 4.18 (no `registry`) next to a separate `referencing`
         return None, f"jsonschema too old ({e}); install omega-cra-evol[schema] (jsonschema[format-nongpl] >= 4.25)"
     _VALIDATORS[spec] = v
@@ -554,6 +631,67 @@ def cyclonedx_schema_check(d: Any) -> Tuple[str, str]:
         return "conformant", f"conformant to bom-{spec}.schema.json"
     where = "/".join(str(x) for x in err.absolute_path) or "(document)"
     return "not_conformant", f"not conformant to bom-{spec}.schema.json at {where}: {err.message}"[:300]
+
+
+# Schema check of an ingested SPDX document (CHANGELOG, Unreleased, SPDX rules 1-5). The official schemas ship in
+# data/spdx/ (SHA-256 in SOURCES.txt); none of them uses a `format` keyword, so jsonschema alone checks them.
+_SPDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "spdx")
+_SPDX2_SCHEMAS = {"SPDX-2.2": "spdx-schema-v2.2.2.json", "SPDX-2.3": "spdx-schema-v2.3.json"}
+SPDX3_CONTEXT_301 = "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"
+_SPDX3_SCHEMA = "spdx-json-schema-3.0.1.json"
+_SPDX_VALIDATORS: Dict[str, Any] = {}
+
+
+def _spdx_validator(name: str):
+    """(validator, None) or (None, reason it cannot run)."""
+    if name in _SPDX_VALIDATORS:
+        return _SPDX_VALIDATORS[name], None
+    try:
+        import jsonschema                  # the extra [schema]
+    except ImportError as e:
+        return None, f"jsonschema is not installed ({e}); install omega-cra-evol[schema]"
+    cls = getattr(jsonschema, "Draft202012Validator" if name == _SPDX3_SCHEMA else "Draft7Validator", None)
+    if cls is None:                        # a jsonschema older than 4.0 has no 2020-12 validator
+        return None, "jsonschema too old (no JSON Schema 2020-12 validator); install omega-cra-evol[schema]"
+    with open(os.path.join(_SPDX_SCHEMA_DIR, name), "rb") as fh:
+        doc = json.loads(fh.read().decode("utf-8"))
+    cls.check_schema(doc)
+    v = cls(doc)
+    _SPDX_VALIDATORS[name] = v
+    return v, None
+
+
+def spdx_schema_check(d: Any) -> Tuple[str, str]:
+    """("conformant" | "not_conformant" | "unsupported" | "not_checked", the text recorded in source.schema_check).
+    `unsupported`: a version without an official schema here (refused unless --allow-nonconformant, rule 2);
+    `not_checked`: the check cannot run on this host (recorded, never floor met, rule 3)."""
+    if isinstance(d, dict) and "spdxVersion" in d:
+        ver = d.get("spdxVersion")
+        name = _SPDX2_SCHEMAS.get(ver) if isinstance(ver, str) else None
+        if name is None:
+            return "unsupported", (f"not checked: no official schema here for spdxVersion {str(ver)[:40]!r} "
+                                   f"({', '.join(sorted(_SPDX2_SCHEMAS))})")
+    else:
+        ctx = d.get("@context") if isinstance(d, dict) else None
+        has_301 = ctx == SPDX3_CONTEXT_301 or (isinstance(ctx, list) and SPDX3_CONTEXT_301 in ctx)
+        if not has_301:
+            return "unsupported", (f"not checked: no official schema here for @context {json.dumps(ctx)[:120]} "
+                                   f"(SPDX 3.0.1: {SPDX3_CONTEXT_301!r})")
+        name = _SPDX3_SCHEMA
+    v, why = _spdx_validator(name)
+    if v is None:
+        return "not_checked", "not checked: " + why
+    from jsonschema.exceptions import best_match
+    from .canonical import deep_recursion
+    try:
+        with deep_recursion():             # a document the parser accepts (nesting <= 512) must be checkable too
+            err = best_match(v.iter_errors(d))
+    except RecursionError:
+        raise ValueError("SPDX malformed: nested too deep for the schema check") from None
+    if err is None:
+        return "conformant", f"conformant to {name}"
+    where = "/".join(str(x) for x in err.absolute_path) or "(document)"
+    return "not_conformant", f"not conformant to {name} at {where}: {err.message}"[:300]
 
 
 def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
@@ -819,7 +957,8 @@ def _spdx3_components(d: Dict[str, Any]) -> Tuple[List[SBOMComponent], str, str]
     return comps, depth, root_purpose
 
 
-def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None) -> SBOMRecord:
+def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
+                   allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest an SPDX document: 2.2/2.3 JSON (`spdxVersion`, `packages`, `relationships`; DESCRIBES/DESCRIBED_BY
     /documentDescribes name the product) or 3.0 JSON-LD (`@graph` of Package elements in compact `type`/`spdxId`
     or expanded `@type`/`@id`/IRI form; `rootElement` of the Sbom/SpdxDocument or a `describes` relationship names
@@ -831,6 +970,11 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     raw, d = _load_document(path, raw)
     if not isinstance(d, dict):
         raise ValueError("SPDX document is not a JSON object")
+    if "spdxVersion" not in d and "@graph" not in d:
+        raise ValueError("not an SPDX 2.x JSON (spdxVersion) nor an SPDX 3.0 JSON-LD (@graph) document")
+    schema_state, schema_text = spdx_schema_check(d)       # rules 1-3: before anything is read from the document
+    if schema_state in ("not_conformant", "unsupported") and not allow_nonconformant:
+        raise ValueError("SPDX " + schema_text + " (--allow-nonconformant records it, never as floor met)")
     if str(d.get("spdxVersion", "")).startswith("SPDX-2"):
         comps, depth, root_purpose = _spdx2_components(d)
         pk = [x for x in _lst(d.get("packages")) if isinstance(x, dict)]
@@ -855,6 +999,7 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     gv = re.match(r"^(.*?)[-\s]?(\d+\.\d+[\w.\-]*)$", source["generator"])
     if gv:   # "syft-1.52.0" / "trivy-0.74.0" → name + version
         source["generator"], source["generator_version"] = gv.group(1).rstrip("-"), gv.group(2)
+    source["schema_check"] = schema_text
     source.update(_fingerprint_bytes(raw, path))
     if root_purpose:
         source["root_purpose_declared"] = root_purpose     # kept as declared even when it has no CycloneDX counterpart (Trivy: SOURCE)
@@ -866,6 +1011,6 @@ def reingest(raw: bytes, path: str, fmt: str, product_id: str, product_version: 
     """The same ingest function, on bytes already in hand (the locker re-derives the index from the bytes it stores)."""
     if fmt == "cyclonedx-json":     # the refusal was decided at ingest; here schema_check must come out the same
         return sbom_from_cyclonedx(path, product_id, product_version, raw=raw, allow_nonconformant=True)
-    if fmt in ("spdx-json", "spdx-jsonld"):
-        return sbom_from_spdx(path, product_id, product_version, raw=raw)
+    if fmt in ("spdx-json", "spdx-jsonld"):     # likewise
+        return sbom_from_spdx(path, product_id, product_version, raw=raw, allow_nonconformant=True)
     raise ValueError(f"unknown source format {fmt!r}")

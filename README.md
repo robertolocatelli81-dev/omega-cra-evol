@@ -144,12 +144,14 @@ virtual environments):
 ```
 pip install --index-url https://robertolocatelli81-dev.github.io/pypi/ omega-cra-evol      # wheel of the GitHub Release
 pip install ".[sign]"    # from a checkout; no runtime dependency, [sign] adds Ed25519 signatures / signed tips / seals
-pip install ".[schema]"  # checks an ingested CycloneDX document against the official schema of its version
+pip install ".[schema]"  # checks an ingested CycloneDX or SPDX document against the official schema of its version
 ```
 
-Without `[schema]` (`jsonschema[format-nongpl]`) `cra sbom --from-cyclonedx` records the document as `schema_check: not
-checked`, and the record never meets the SBOM floor; a document that fails its official schema is refused unless
-`--allow-nonconformant` is given (then recorded, marked, never floor met). See the CHANGELOG, Unreleased.
+Without `[schema]` (`jsonschema[format-nongpl]`) `cra sbom --from-cyclonedx` / `--from-spdx` records the document as
+`schema_check: not checked`, and the record never meets the SBOM floor; a document that fails its official schema
+(CycloneDX 1.2 … 1.7, SPDX 2.2, 2.3 and 3.0.1), or whose version has no schema here, is refused unless
+`--allow-nonconformant` is given (then recorded, marked, never floor met). A refused document exits 2 with one line on
+stderr and nothing is written; recorded with the floor not met exits 1. See the CHANGELOG, Unreleased.
 
 The command is `cra` (also installed as `omega-cra-evol`, the name `pipx run` and `uvx` look for); the Python package is
 `omega_cra_evol`.
@@ -176,7 +178,7 @@ network by default):
 
 | Command | What it does |
 |---|---|
-| `cra sbom --from-cyclonedx F` / `--from-spdx F` | records an SBOM; the generator's document is hashed and stored byte for byte |
+| `cra sbom --from-cyclonedx F` / `--from-spdx F` | records an SBOM; the generator's document is checked against its official schema, hashed and stored byte for byte |
 | `cra vuln --id ID --aware T [--exploited] [--incident]` | records a vulnerability or severe-incident event and computes the Art. 14 deadlines from the declared awareness instant |
 | `cra schema --stream S --template STAGE` | prints the fields of a stage in the ENISA glossary vocabulary |
 | `cra notice --stage STAGE --fields F --drop D` | builds the notice payload, lists missing required fields, records it; never submits it |

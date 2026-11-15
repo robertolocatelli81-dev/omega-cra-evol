@@ -256,7 +256,7 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--from-cyclonedx", help="ingest a CycloneDX JSON (Syft, Trivy, cdxgen…)")
     s.add_argument("--from-spdx", help="ingest an SPDX 2.2/2.3 JSON or SPDX 3.0 JSON-LD document (Syft, Yocto, Parlay…)")
     s.add_argument("--installed", nargs="*", help="top-level PyPI names resolved from this environment"); s.add_argument("--transitive", action="store_true")
-    s.add_argument("--allow-nonconformant", action="store_true", help="record a CycloneDX document that fails its official schema (marked in source.schema_check, never floor met); default: refuse it")
+    s.add_argument("--allow-nonconformant", action="store_true", help="record a CycloneDX or SPDX document that fails its official schema, or whose version has no schema here (marked in source.schema_check, never floor met); default: refuse it (exit 2, nothing recorded)")
     s.add_argument("--no-store-source", action="store_true", help="do not copy the ingested document to <ledger>.sources/ (its SHA-256 is still recorded)")
     s.add_argument("--spec-version", default="1.6", choices=["1.6", "1.7"], help="CycloneDX version of the index export written into the record (default 1.6)")
     s = sub.add_parser("vuln", help="record a vulnerability-handling event"); common(s)
@@ -377,17 +377,22 @@ def _main(argv: List[str] = None) -> int:
         lk = _locker(a)
         if sum(1 for x in (a.from_cyclonedx, a.from_spdx, a.installed is not None) if x) > 1:
             p.error("sbom: --from-cyclonedx, --from-spdx and --installed are mutually exclusive")
-        if a.allow_nonconformant and not a.from_cyclonedx:
-            p.error("sbom: --allow-nonconformant applies only to --from-cyclonedx")
-        if a.from_cyclonedx:
-            rec = sbom_from_cyclonedx(a.from_cyclonedx, a.product, a.version, allow_nonconformant=a.allow_nonconformant)
-        elif a.from_spdx:
-            rec = sbom_from_spdx(a.from_spdx, a.product, a.version)
+        if a.allow_nonconformant and not (a.from_cyclonedx or a.from_spdx):
+            p.error("sbom: --allow-nonconformant applies only to --from-cyclonedx and --from-spdx")
+        src = a.from_cyclonedx or a.from_spdx
+        if src:
+            # a document refused at ingest (malformed, not conformant, a version without a schema, not JSON): exit 2,
+            # one line, nothing written — 1 stays "recorded, floor not met" (CHANGELOG, Unreleased)
+            ingest = sbom_from_cyclonedx if a.from_cyclonedx else sbom_from_spdx
+            try:
+                rec = ingest(src, a.product, a.version, allow_nonconformant=a.allow_nonconformant)
+            except (OSError, ValueError) as e:
+                _say("cra sbom: refused, nothing recorded: " + " ".join(str(e).split())[:500] + "\n")
+                return 2
         elif a.installed is not None:
             rec = sbom_from_installed(a.product, a.version, a.installed, transitive=a.transitive)
         else:
             p.error("sbom: give --from-cyclonedx, --from-spdx or --installed")
-        src = a.from_cyclonedx or a.from_spdx
         e = lk.record_sbom(rec, source_path=src, store=not a.no_store_source, spec_version=a.spec_version); n = len(resolved_components(rec))
         _p({"recorded": e["idx"], "components": len(rec.components), "resolved": n, "depth": rec.depth, "floor_met": e["data"]["sbom_floor_met"],
             "source": e["data"].get("source")})

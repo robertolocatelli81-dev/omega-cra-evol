@@ -1,0 +1,13 @@
+Test inputs of other projects, copied unmodified (Apache-2.0, LICENSE-Apache-2.0), downloaded 14/11/2026 for the test round:
+tools-java_*: spdx/tools-java commit d91bbc7c2c96d47af3952c5b115bcbb36d1cb854, testResources/<name>
+sbomqs_*: interlynk-io/sbomqs commit 0ac70a8953e71bac997031d5a1255e881af29971, testdata/fixtures/<name> (spdx-no-timestamp, spdx-no-authors, spdx-old-version) and testdata/bsi/spdx3/<name> (v2.1.0-complete-all-fields)
+12d2f98879bbb97ad25d68747110f770ee6bdb9ca57b242338d0fde0e3265c86  tools-java_BadJSON.spdx.json
+113d8e59fc85b85c08ac059eb17cf5e7e1757f5dbb7ea1df89f9c5b2250d31a1  tools-java_SPDXJSONExample-v2.2.spdx.json
+428d3ba38e769cdd2fde2883aaabfab24532a5753c880a7cddc0a9ef57124dcb  tools-java_SPDXJSONExample-v2.3.spdx.json
+97f4455b30e1e69918b8ef0a696b40c6826e5c5381ab2ae871ca7424c1933b33  tools-java_SPDXJsonLDExample-v3.0.1.json
+5283fb19945e5a6daaf976bf020e5d1d2938c81d9365f4c2577d9dbdc934320b  tools-java_SPDXTagExample-v2.3.spdx
+9559997cd3915e24765ddeddf540f4d831bf3b35cc40a7540052e74289b5f996  tools-java_SPDXWrongVersion.spdx.json
+7daa65e539be86907e03d6af1dadb044540fc16f8934f62b339d3397fa9ae0d5  sbomqs_spdx-no-authors.json
+d3210eada7de5780bfa03fb227c335036351707101f242f6eca0d4aaa2e98844  sbomqs_spdx-no-timestamp.json
+84d1903b7533a08f22679feb3e723184c84a75ee9cfe3bfe6a2228ca880304a6  sbomqs_spdx-old-version.json
+2d667b387d3f8b38315711ea30e2f963fb7932d6104e54ddd23ec24419bbf3d8  sbomqs_v2.1.0-complete-all-fields.json

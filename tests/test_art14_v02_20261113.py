@@ -6,7 +6,8 @@
   every published vector file keeps its sha256;
 - two statements of the same product and stage, without the notice, are told apart by their receipts (spec §1);
 - a v0.1 statement keeps the receipt of cra-evidence 0.8.0 byte for byte (receipts of 0.8.0 on the v0.1 vectors,
-  vendored in tests/fixtures/art14_v01_receipts_080/);
+  vendored in tests/fixtures/art14_v01_receipts_080/), but `predicate_type` where the statement was not read from a
+  trusted envelope: "not_evaluated" since 15/11/2026 (v0.2 §5 amended), where 0.8.0 wrote the v0.1 TypeURI;
 - `cra attest` writes v0.2 by default, with the identifiers of the notice, and the bytes of the vectors (built
   without the v0.2 producer) but `source.toolVersion`; `--predicate v0.1` writes what 0.8.0 wrote but `source.toolVersion` (the version that
   writes it); `--case-reference` is checked;
@@ -57,6 +58,13 @@ def argv_of(v, d):
     if v["ledger"]:
         a += ["--ledger", os.path.join(d, v["ledger"])]
     return a
+
+
+def _no_duplicates(pairs):
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate key")
+    return dict(pairs)
 
 
 def payload_of(env_path):
@@ -182,7 +190,21 @@ class TestV01ReceiptsUnchanged(unittest.TestCase):
                     with open(os.path.join(R080, n + ".json"), encoding="utf-8") as f:
                         want = json.load(f)
                     self.assertEqual(rc, want["exit"])
-                    self.assertEqual(out, want["stdout"])
+                    # v0.2 §5 (amended 15/11/2026): the declared predicateType once read from a trusted statement,
+                    # else "not_evaluated"; every other byte of the receipt is that of 0.8.0
+                    old = json.loads(want["stdout"])
+                    declared = None
+                    if old["trusted"]:
+                        try:     # read as the verifier reads it: strict JSON (a duplicate key is not read)
+                            st = json.loads(payload_of(v["envelope"]), object_pairs_hook=_no_duplicates)
+                            declared = st.get("predicateType") if isinstance(st, dict) else None
+                        except ValueError:
+                            pass
+                    expect = declared if isinstance(declared, str) else "not_evaluated"
+                    self.assertEqual(old["predicate_type"], TYPE_V01)
+                    stdout = want["stdout"].replace('"predicate_type": %s' % json.dumps(TYPE_V01),
+                                                    '"predicate_type": %s' % json.dumps(expect), 1)
+                    self.assertEqual(out, stdout)
         finally:
             os.chdir(cwd)
 
