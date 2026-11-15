@@ -48,7 +48,7 @@ generator document with floats is checked byte-exact): a mismatch is a FAIL; an 
 many documents are hash-only, or a FAIL with `--require-sources`. A `sha256` that is present and not a lower-case 64-hex string is a FAIL, never a path (null or empty = no hash recorded);
 `--require-sources` with no ledger next to the pack is a FAIL, like `--log-pubkey`. A stored document above 256 MiB is refused unread.
 
-**Files a verifier reads (25/09/2026, Unreleased).** Every file — pack, sidecar, ledger, tip, trust store, stored source
+**Files a verifier reads (25/09/2026, released in 0.3.2).** Every file — pack, sidecar, ledger, tip, trust store, stored source
 document — is opened without blocking (`O_NONBLOCK | O_NOCTTY`) and read only if the open descriptor is a regular file
 (`fstat`); a FIFO, a device (`/dev/zero`, directly or through a symlink), a socket or a directory is `not a regular
 file`, with the outcome an unreadable file has in that position (`pack-json` / `producer-signature` / `ledger-chain` /

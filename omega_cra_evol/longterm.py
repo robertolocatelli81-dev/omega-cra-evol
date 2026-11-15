@@ -154,8 +154,8 @@ class LongTermEvidence:
     def seal(self, signer: Signer, t: Optional[float], ts_source: str = "asserted", stronger_digest: Optional[str] = None,
              hash_alg: str = DEFAULT_HASH, token_b64: Optional[str] = None) -> Dict:
         """ts_source is one of "asserted", "rfc3161", "ots"; "rfc3161" and "ots" REQUIRE the token. An "ots" token's SHAPE
-        is checked (the OpenTimestamps file header). An "rfc3161" token (spec/TIME_ANCHOR.md, since the release after
-        0.11.1) must be a TimeStampResp / TimeStampToken whose messageImprint is `anchor_imprint` of this record
+        is checked (the OpenTimestamps file header). An "rfc3161" token (spec/TIME_ANCHOR.md, since 0.12.0)
+        must be a TimeStampResp / TimeStampToken whose messageImprint is `anchor_imprint` of this record
         (SHA-256 or SHA3-256 over the digest, every previous record and this record's own fields); `t` is taken from
         its genTime (`t` None, or equal to it); the record carries `anchor`. A token over the bare digest, the shape of
         0.9.0-0.11.1, is refused. Nothing here verifies the token's signature or TSA: that is the `timestamp_trust_fn`
