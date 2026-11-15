@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — supply chain of the release measurable by third parties
+
+- **Supply chain of the release, measurable by third parties.** `release-build.yml` builds the wheel and the sdist on a
+  GitHub-hosted runner from the tag, with the build front-end and setuptools pinned by hash
+  (`.github/build-requirements.txt`, `pip install --require-hashes`, `python -m build --no-isolation`), and signs SLSA
+  build provenance for both files (`actions/attest`, Sigstore; SLSA v1.0 Build Level 2 per GitHub's documentation); the
+  bundle is kept as `build-provenance.sigstore.json`. `gh attestation verify <file> --repo <owner>/<repo>` checks it.
+- **CI hygiene.** Every `uses:` of the workflows is pinned to a commit SHA (the tag in a comment); the CI workflow runs
+  with a read-only token (`permissions: contents: read`); `scorecard.yml` publishes the OpenSSF Scorecard result;
+  `.github/dependabot.yml` proposes weekly updates of the pinned actions and the Python dependencies.
+- **Licence metadata (PEP 639).** `license = "AGPL-3.0-or-later"` as an SPDX expression and `license-files` in
+  `pyproject.toml` (setuptools ≥ 77, which builds wheels itself: `wheel` is no longer a build requirement); the
+  licence classifier, which PEP 639 does not allow next to an expression, is removed; the wheel's METADATA carries
+  `License-Expression` and the licence file.
+- **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
+  on the repository on 15/11/2026.
+
 ## 0.11.1 — 2026-11-15 — the container image of the release builds
 
 The image of 0.11.0 was not published: its build (`.github/workflows/container.yml`, run 43717002856) stopped at

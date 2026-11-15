@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]   # 77: PEP 639 license expression and license-files; bdist_wheel is in setuptools
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,10 +8,11 @@ version = "0.11.1"
 description = "Firm-side, offline-verifiable evidence for the EU Cyber Resilience Act: SBOM records, the Art. 14 clock, SRP-aligned notices, a 10-year crypto-agile seal — in the cryptovalid ledger profile"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "AGPL-3.0-or-later"}
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [{name = "Roberto Locatelli"}]
 keywords = ["cyber-resilience-act", "CRA", "SBOM", "CycloneDX", "vulnerability-reporting", "ENISA", "evidence", "audit", "hash-chain"]
-classifiers = ["Programming Language :: Python :: 3", "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+classifiers = ["Programming Language :: Python :: 3",
                "Topic :: Security", "Intended Audience :: Developers", "Operating System :: OS Independent"]
 dependencies = []
 

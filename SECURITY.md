@@ -1,6 +1,7 @@
 # Security policy
 
-Report a vulnerability in this repository privately to the author (roberto.locatelli.81@gmail.com) with the
+Report a vulnerability in this repository privately — through GitHub's "Report a vulnerability" (Security tab →
+Advisories), or to the author (roberto.locatelli.81@gmail.com) — with the
 commit hash and a reproducer. You will get an acknowledgement within 72 hours and a fix or a written rationale
 within 14 days for anything exploitable; fixed versions are tagged and listed in CHANGELOG.md with the reporter's
 credit if wanted. This project keeps its own SBOM and vulnerability-handling evidence with itself

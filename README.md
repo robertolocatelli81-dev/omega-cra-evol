@@ -150,7 +150,7 @@ commit, fresh virtual environments, every job of `.github/workflows/ci.yml` run 
 ## Install
 
 ```
-pip install --index-url https://robertolocatelli81-dev.github.io/pypi/ omega-cra-evol      # wheel of the GitHub Release
+pip install omega-cra-evol   # PyPI: the wheel attached to the GitHub Release (also https://robertolocatelli81-dev.github.io/pypi/)
 pip install ".[sign]"    # from a checkout; no runtime dependency, [sign] adds Ed25519 signatures / signed tips / seals
 pip install ".[schema]"  # checks an ingested CycloneDX or SPDX document against the official schema of its version
 ```
