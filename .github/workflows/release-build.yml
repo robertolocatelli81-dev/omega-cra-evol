@@ -32,7 +32,10 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::pyproject.toml is $v, tag is $GITHUB_REF_NAME"; exit 1; }
           fi
+          # reproducible: the commit time as SOURCE_DATE_EPOCH, and the sdist rewritten without build-time dates
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           python -m build --no-isolation --outdir dist .
+          python scripts/repro_sdist.py dist/*.tar.gz
           ls dist
           [ "$(ls dist | wc -l)" = 2 ] || { echo "::error::expected one wheel and one sdist"; exit 1; }
           (cd dist && sha256sum *) | tee dist-sha256.txt

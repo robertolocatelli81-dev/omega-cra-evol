@@ -184,10 +184,15 @@ def entry_hash(entry: Dict[str, Any]) -> str:
     return sha256_hex({k: v for k, v in entry.items() if k != "self_hash"})
 
 
-def _tail_state(f) -> Tuple[int, str, str, bool]:
-    """(next idx, last self_hash, first self_hash, file ends without newline). Fail-closed on a bad line."""
-    f.seek(0)
-    n, last, first, unterminated, lineno = 0, GENESIS, GENESIS, False, 0
+def _tail_state(f, start: Optional[Dict[str, Any]] = None) -> Tuple[int, str, str, bool, int]:
+    """(next idx, last self_hash, first self_hash, file ends without newline, lines read). Fail-closed on a bad line.
+    `start` (from _cached_start) resumes after bytes already read by an earlier append and found unchanged."""
+    if start is None:
+        f.seek(0)
+        n, last, first, unterminated, lineno = 0, GENESIS, GENESIS, False, 0
+    else:
+        f.seek(start["size"])
+        n, last, first, unterminated, lineno = start["n"], start["last"], start["first"], False, start["lines"]
     while True:                                           # the writer reads with the VERIFIERS' rules: bounded, one terminator, ASCII blank
         raw = f.readline(MAX_LINE_BYTES + 2)
         if not raw:
@@ -211,12 +216,78 @@ def _tail_state(f) -> Tuple[int, str, str, bool]:
         last = e["self_hash"]
         if n == 1:
             first = last
-    return n, last, first, unterminated
+    return n, last, first, unterminated, lineno
+
+
+# ── Append without re-reading the whole ledger (15/11/2026) ───────────────────────────────────────────────────────────
+# Each append used to parse every line (O(n): 1.1 s per append at 10 000 entries, 23.7 s at 200 000, measured by
+# Athena's review). After an append the writer keeps, next to the ledger, the size of the file, the SHA-256 of its
+# bytes, and the chain state at its end. The next append hashes those bytes again (C speed) and, only if they are
+# unchanged byte for byte, parses just the lines added since; any difference — a changed, removed or added byte in the
+# part already read, a smaller file, a state file that is missing, malformed or of another version — means the whole
+# ledger is read as before, with the same refusals. The state file is a cache, never evidence: nothing reads it but
+# the writer, a verifier never sees it, and losing it only costs one full read.
+STATE_SUFFIX = ".append-state.json"
+STATE_VERSION = 1
+_HASH_CHUNK = 1 << 20
+
+
+def _prefix_sha256(f, size: int) -> Optional[str]:
+    import hashlib
+    h, left = hashlib.sha256(), size
+    f.seek(0)
+    while left:
+        b = f.read(min(_HASH_CHUNK, left))
+        if not b:
+            return None
+        h.update(b); left -= len(b)
+    return h.hexdigest()
+
+
+def _cached_start(path: str, f) -> Optional[Dict[str, Any]]:
+    """The chain state at the end of the bytes the last append left, if those bytes are still the file's first bytes."""
+    try:
+        with open(path + STATE_SUFFIX, "rb") as g:
+            raw = g.read(4096 + 1)
+        s = json.loads(raw.decode("utf-8")) if len(raw) <= 4096 else None
+    except (OSError, ValueError):
+        return None
+    keys = {"version", "size", "sha256", "n", "lines", "last", "first"}
+    if not isinstance(s, dict) or set(s) != keys or s["version"] != STATE_VERSION:
+        return None
+    for k in ("size", "n", "lines"):
+        if type(s[k]) is not int or s[k] < 0:
+            return None
+    for k in ("sha256", "last", "first"):
+        if not isinstance(s[k], str) or len(s[k]) != 64 or any(c not in "0123456789abcdef" for c in s[k]):
+            return None
+    if os.fstat(f.fileno()).st_size < s["size"] or _prefix_sha256(f, s["size"]) != s["sha256"]:
+        return None
+    return s
+
+
+def _write_state(path: str, f, n: int, lines: int, last: str, first: str) -> None:
+    """Best effort: the append is already durable; a state that cannot be written only means a full read next time."""
+    try:
+        size = os.fstat(f.fileno()).st_size
+        digest = _prefix_sha256(f, size)
+        if digest is None:
+            return
+        body = json.dumps({"version": STATE_VERSION, "size": size, "sha256": digest, "n": n, "lines": lines,
+                           "last": last, "first": first}, sort_keys=True).encode()
+        tmp = path + STATE_SUFFIX + ".tmp"
+        with open(tmp, "wb") as g:
+            g.write(body)
+            g.flush(); os.fsync(g.fileno())
+        os.replace(tmp, path + STATE_SUFFIX)
+    except OSError as e:
+        _log.warning("ledger %s: append state not written (%s): the next append reads the whole ledger", path, e)
 
 
 class Ledger:
-    """A single JSONL file. `append(data)` is O(n) (reads the tail under the lock) — fine for evidence lockers,
-    where a product records dozens to thousands of events, not millions per second."""
+    """A single JSONL file. `append(data)` parses only the lines added since this writer's last append, after checking
+    by SHA-256 that the bytes before them are unchanged (otherwise it reads the whole file, as before 15/11/2026);
+    the check itself reads the file once, at hashing speed."""
 
     def __init__(self, path: str, tip_key: Optional[object] = None, allow_unlocked: bool = False):
         # allow_unlocked=True is the ONLY way to append on a filesystem without flock, and it is the caller's
@@ -234,7 +305,8 @@ class Ledger:
             if not _lock(f) and not self.allow_unlocked:
                 raise RuntimeError("ledger: exclusive lock unavailable on this filesystem; refusing to append "
                                    "(pass allow_unlocked=True to accept unserialised appends explicitly)")
-            idx, prev, first, unterminated = _tail_state(f)
+            start = _cached_start(self.path, f)
+            idx, prev, first, unterminated, lines_before = _tail_state(f, start)
             entry = {"idx": idx, "ts": ts or _now_ts(), "prev_hash": prev, "data": data}
             entry["self_hash"] = entry_hash(entry)
             line = canonical_bytes(entry) + b"\n"
@@ -263,6 +335,8 @@ class Ledger:
                     from .outputs import OutputNotWritten
                     raise OutputNotWritten(f"ledger {self.path}: {e.strerror or e}; nothing was recorded, {left}") from None
                 raise
+            _write_state(self.path, f, idx + 1, lines_before + 1,   # an unterminated last line was already counted
+                         entry["self_hash"], first if idx > 0 else entry["self_hash"])
             if self._tip_key is not None:
                 from .signing import write_tip
                 from .outputs import TipNotWritten

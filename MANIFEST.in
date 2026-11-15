@@ -1,0 +1,13 @@
+# The sdist holds everything the test suite reads, so the suite runs from the unpacked sdist (15/11/2026: before, it
+# held the package and 49 test files but no fixtures, specifications, examples, scripts or verifiers).
+include CHANGELOG.md CITATION.cff SECURITY.md THIRD_PARTY_NOTICES.md LICENSE README.md
+include Dockerfile .dockerignore action.yml .gitignore .gitleaksignore
+graft .github
+graft container
+graft examples
+graft scripts
+graft spec
+graft tests
+graft verifiers
+prune verifiers/rust/target
+global-exclude __pycache__ *.py[cod] node_modules

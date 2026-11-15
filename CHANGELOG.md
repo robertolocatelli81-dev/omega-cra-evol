@@ -25,6 +25,21 @@
   on the code before this change.
 - **`verifiers/rust/Cargo.lock` is in the repository** and the CI builds with `--locked` (36 external crates, among them
   ed25519-dalek 2.2.0).
+- **An append no longer re-reads the whole ledger.** After each append the writer keeps, next to the ledger, a state
+  file (`<ledger>.append-state.json`: the file's size, the SHA-256 of its bytes, the chain state at its end). The
+  next append hashes those bytes again and, only if they are unchanged byte for byte, parses just the lines added
+  since; otherwise — a changed, removed or added byte, a smaller file, a state file missing, malformed or of another
+  version — it reads the whole ledger with the same refusals as before. The state file is a cache, not evidence: no
+  verifier reads it, and deleting it costs one full read. Measured on one machine: an append to a 10 000-entry
+  ledger took 444–529 ms and now 10–26 ms; to a 50 000-entry ledger 2.2–3.7 s and now 30–43 ms (the first append
+  after the change still reads everything). `tests/test_ledger_append_state_20261115.py` compares, on 40 generated
+  sequences of 60 steps with eleven kinds of outside changes to the ledger and to the state file, every append with
+  a full read of the same file: 0 differences; with the SHA-256 check removed the same generator finds 162.
+- **The sdist is complete and reproducible.** `MANIFEST.in` puts in it every file git tracks (before: the package
+  and 49 test files, without fixtures, specifications, examples, scripts or verifiers), and the whole suite runs
+  from the unpacked sdist (531 tests, 1 skipped). `release-build.yml` sets `SOURCE_DATE_EPOCH` to the commit time and
+  rewrites the sdist with `scripts/repro_sdist.py` (sorted members, fixed times and owners, no gzip time; the
+  content is checked unchanged): two builds of the same commit give the same sdist and the same wheel.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 
