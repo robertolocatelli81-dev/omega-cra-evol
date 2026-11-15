@@ -43,6 +43,8 @@
 - **The binaries the CI downloads are checked by SHA-256** before they run: gitleaks 8.24.3 against the checksum file
   of its release; cyclonedx-cli 0.33.1, whose release publishes no checksum, against the digest of the binary as
   downloaded on 15/11/2026.
+- SECURITY.md said `examples/self_evidence/` holds the project's own evidence; it is the worked example made by 0.4.0, and
+  each release's own SBOM, ledger and signed pack are among its release assets: the text now says so.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 
