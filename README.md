@@ -135,7 +135,9 @@ virtual environments):
 - The attestation vectors: v0.1, 52 (10 valid, 42 each breaking one rule), and v0.2, 53 (10 valid, 43 refused): each
   gives the exit code and exactly the set of reason codes its `manifest.json` expects.
 - A v0.1 statement keeps its receipt: on the 52 v0.1 vectors of 0.8.0, the receipts of 0.8.0 and of this code are
-  byte for byte the same on 51; the 52nd used the v0.2 TypeURI as its "wrong" value and is now judged as v0.2.
+  byte for byte the same on 51; the 52nd used the v0.2 TypeURI as its "wrong" value and is now judged as v0.2. (Since
+  15/11/2026, unreleased: 41 of those 51 are the same byte for byte, 10 differ only in `predicate_type`,
+  `"not_evaluated"` where the statement was not read from a trusted envelope; art14-filing v0.2 §5 as amended.)
 - The vendored sbomify documents (3 reports, 9 filings, all five stages: early warning, notification, intermediate,
   final report, users informed): every filing imports, and each of the 9 notices is attested (v0.2) and verifies with
   its drop file and ledger.

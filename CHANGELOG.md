@@ -82,6 +82,37 @@ it refuses IPv6 literals with fewer than seven groups before `::` (`http://[::1]
 planes in `ucschar` and `iprivate`, and an upper-case `V` in `IPvFuture` (ABNF strings are case-insensitive, RFC 2234
 §2.3); these are now accepted, as the RFC says.
 
+### `pattern` read as an ECMA-262 regular expression (rule written before the code, 15/11/2026)
+
+JSON Schema says which regular expressions a schema holds: draft-07 Validation §4.3 ("These regular expressions SHOULD
+be valid according to the ECMA 262 [ecma262] regular expression dialect"; §6.3.3, `pattern`, says the same), 2020-12 Core §6.4 ("SHOULD be valid according to the
+regular expression dialect described in ECMA-262, section 21.2.1", "SHOULD be built with the \"u\" flag"), 2020-12
+Validation §6.3.3 (`pattern`: "according to the ECMA-262 regular expression dialect"). jsonschema runs them with
+Python's `re.search`, which reads some tokens differently. The schema check of CycloneDX and SPDX documents now reads
+every `pattern` of the shipped schemas as ECMA-262 with the `u` flag:
+
+1. Translated with the ECMA meaning: `$` outside a class is the end of the input (Python also matches before a final
+   `\n`); `.` is any character but `\n`, `\r`, U+2028, U+2029 (Python: any but `\n`); `\d` is `[0-9]` and `\w` is
+   `[A-Za-z0-9_]` (Python: Unicode digits and letters); `\s` is ECMA's WhiteSpace and LineTerminator set (Python's also
+   holds U+001C ... U+001F and U+0085, and lacks U+FEFF). Literal characters, classes, ranges, groups `(?:`, lookaheads
+   `(?=` `(?!`, alternation, quantifiers (also lazy) and the escapes `\t \n \r \f \v`, `\xHH`, `\uHHHH` outside
+   U+D800 ... U+DFFF and the identity escapes ECMA-262 allows with `u` (`\^ \$ \\ \. \* \+ \? \( \) \[ \] \{ \} \| \/`,
+   and `\-` in a class) keep their meaning.
+2. Any other construct (back-references, `\b`, `\p{…}`, `\u{…}`, a surrogate escape `\uD800` ... `\uDFFF`, which with
+   `u` joins its pair into one code point, lookbehind, named groups, inline flags…) is not translated, nor is a pattern
+   ECMA-262 refuses with `u` while Python's `re` gives it a meaning (a `{`, `}` or `]` that is not syntax, an escape of
+   another character such as `\-` outside a class, a quantifier after a quantifier, after an assertion or after
+   nothing, a class escape in a range), nor is `patternProperties` (jsonschema reads it again inside `additionalProperties` and
+   `unevaluatedProperties`): a schema that holds one makes the check `not checked: <reason>` for the document (rule 2
+   of each format: recorded, never floor met), never a guess. The shipped schemas hold none: 17 distinct `pattern`
+   values, no `patternProperties` (listed in the tests).
+3. Oracle: Node's own ECMA-262 engine (`new RegExp(pattern, "u")`) on the 17 patterns: every string of up to 300
+   characters, keys included, in the JSON files of `tests/data` and `examples` (2021 on 15/11/2026), as it is and with a
+   final newline; 150 generated strings per pattern; every code point up to U+30FF through `\s`, `\d`, `\w` and `.`;
+   3315 generated patterns, of which the 585 translated are each accepted by Node and match the same 47 strings. No
+   difference (`tests/test_ecma_pattern_20261115.py`, which also checks that Python's own `re` differs on more than
+   50 of the same cases).
+
 ### `cra sbom`: a refused document exits 2 with one line (15/11/2026)
 
 A document `cra sbom` refuses (malformed, not conformant, a version without a schema, not JSON) exits **2** ("unusable
@@ -102,7 +133,8 @@ receipt wrote the v0.1 TypeURI in those cases (art14-filing v0.2 §5 said so, to
 measured on 15/11/2026 on 270 envelopes of other tools (SLSA provenance v0.2 and v1, cosign, CycloneDX, VSA), each
 receipt named `…/art14-filing/v0.1` although 156 of the envelopes declare another type. Spec art14-filing v0.2 §5 is
 amended (the statement format and the reasons are unchanged); the receipts of 0.8.0 on the v0.1 vectors stay the
-same in every other key.
+same in every other key: of the 51 v0.1 vectors whose receipt 0.8.0 kept, 41 are byte for byte the same, 10 differ
+only in `predicate_type` (`"not_evaluated"`, the statement not read from a trusted envelope).
 
 ### CycloneDX (rule written before the code, 14/11/2026)
 

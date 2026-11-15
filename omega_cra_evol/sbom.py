@@ -571,13 +571,171 @@ def _cdx_validator(spec: str):
     pairs += [(d["$id"], Resource.from_contents(d)) for d in docs.values() if isinstance(d.get("$id"), str)]
     # uniqueItems in linear time (jsonschema compares objects pairwise: 4,000 components took 16 s, 20,000 minutes),
     # with the same equality as jsonschema (_utils.equal: true is not 1, 1 equals 1.0, objects and arrays by value)
-    cls = jsonschema.validators.extend(jsonschema.Draft7Validator, {"uniqueItems": _unique_items})
+    why = _ecma_ready(list(docs.values()))
+    if why:
+        return None, why
+    cls = jsonschema.validators.extend(jsonschema.Draft7Validator, {"uniqueItems": _unique_items, **ECMA_KEYWORDS})
     try:
         v = cls(docs[f"bom-{spec}.schema.json"], registry=Registry().with_resources(pairs), format_checker=_format_checker(jsonschema))
     except TypeError as e:                 # a jsonschema older than 4.18 (no `registry`) next to a separate `referencing`
         return None, f"jsonschema too old ({e}); install omega-cra-evol[schema] (jsonschema[format-nongpl] >= 4.25)"
     _VALIDATORS[spec] = v
     return v, None
+
+
+# `pattern` as an ECMA-262 regular expression with the "u" flag (CHANGELOG, Unreleased: JSON Schema
+# draft-07 Validation §4.3, 2020-12 Core §6.4). jsonschema uses Python's re.search, which reads `$`, `.`, `\d`, `\w` and
+# `\s` differently; they are translated, and any construct this translation does not cover raises EcmaPatternUnsupported
+# (the check is then "not checked", never a guess).
+class EcmaPatternUnsupported(ValueError):
+    pass
+
+
+_ECMA_SPACE = "\t\n\x0b\x0c\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+_ECMA_CLASS_ESC = {"d": "0-9", "w": "A-Za-z0-9_", "s": _ECMA_SPACE}
+_ECMA_ESC = {"d": "[0-9]", "D": "[^0-9]", "w": "[A-Za-z0-9_]", "W": "[^A-Za-z0-9_]", "s": "[" + _ECMA_SPACE + "]",
+             "S": "[^" + _ECMA_SPACE + "]"}
+_ECMA_PATTERNS: Dict[str, Any] = {}
+
+
+def ecma_pattern(p: str):
+    """the compiled Python pattern with the meaning of the ECMA-262 pattern `p` ("u" flag, no other flag); a pattern
+    ECMA-262 refuses with "u", or a construct not translated here, raises EcmaPatternUnsupported"""
+    if p in _ECMA_PATTERNS:
+        return _ECMA_PATTERNS[p]
+    bad = lambda why: EcmaPatternUnsupported(f"pattern {p[:80]!r}: {why}")   # noqa: E731
+    out, i, cls = [], 0, False
+    atom = False           # the last token written can take a quantifier (not a start, "|", "(", an assertion)
+    quant = 0              # 1: a quantifier was just written, 2: and its lazy "?"; no other quantifier may follow
+    groups: List[bool] = []    # per open group: is it a lookahead (which "u" forbids to quantify)
+    while i < len(p):
+        c = p[i]
+        if c == "\\":
+            e = p[i + 1:i + 2]
+            if not e:
+                raise bad("a trailing backslash")
+            if e in "dws" and cls:
+                if (p[i - 1:i] == "-" and p[i - 2:i - 1] not in ("[", "^")) or \
+                        (p[i + 2:i + 3] == "-" and p[i + 3:i + 4] != "]"):
+                    raise bad("a class escape at the end of a range")
+                out.append(_ECMA_CLASS_ESC[e])
+            elif e in _ECMA_ESC and not cls:
+                out.append(_ECMA_ESC[e])
+            elif e in "tnrfv":
+                out.append("\\" + e)
+            elif e == "x" and re.fullmatch(r"[0-9A-Fa-f]{2}", p[i + 2:i + 4]):
+                out.append(p[i:i + 4]); i += 4; atom, quant = not cls or atom, 0; continue
+            elif e == "u" and re.fullmatch(r"[0-9A-Fa-f]{4}", p[i + 2:i + 6]):
+                if 0xD800 <= int(p[i + 2:i + 6], 16) <= 0xDFFF:     # with "u" a pair of escapes is ONE code point
+                    raise bad(f"the surrogate escape \\{p[i + 1:i + 6]} is not translated")
+                out.append(p[i:i + 6]); i += 6; atom, quant = not cls or atom, 0; continue
+            elif e in "^$\\.*+?()[]{}|/" or (e == "-" and cls):     # the identity escapes "u" allows
+                out.append("\\" + e)
+            else:
+                raise bad(f"the escape \\{e} is not translated")
+            i += 2
+            if not cls:
+                atom, quant = True, 0
+            continue
+        if cls:
+            if c == "]":
+                cls, atom, quant = False, True, 0
+            elif c == "[":
+                c = "\\["                              # a literal "[" in an ECMA class; Python warns on it
+            out.append(c)
+        elif c == "[":
+            cls = True
+            out.append(c)
+            if p[i + 1:i + 2] == "^":
+                out.append("^"); i += 1
+            if p[i + 1:i + 2] == "]":
+                raise bad("an empty class")
+        elif c == "(":
+            kind = p[i + 1:i + 3] if p[i + 1:i + 2] == "?" else ""
+            if kind and kind not in ("?:", "?=", "?!"):
+                raise bad(f"the group ({kind} is not translated")
+            groups.append(kind in ("?=", "?!"))
+            out.append("(" + kind); i += 1 + len(kind); atom, quant = False, 0; continue
+        elif c == ")":
+            if not groups:
+                raise bad("a lone ')'")
+            out.append(c); atom, quant = not groups.pop(), 0
+        elif c in "*+?{":
+            m = re.match(r"\{[0-9]+(?:,[0-9]*)?\}", p[i:]) if c == "{" else None
+            if c == "{" and m is None:
+                raise bad("a '{' that is not a quantifier")
+            if quant == 1 and c == "?":
+                out.append("?"); i += 1; quant = 2; continue      # the lazy mark of the quantifier just written
+            if quant or not atom:
+                raise bad("a quantifier with nothing to repeat")
+            if m and len(m.group(0)) > 2 and "," in m.group(0)[1:-1]:
+                lo, hi = m.group(0)[1:-1].split(",")
+                if hi and int(lo) > int(hi):
+                    raise bad("a quantifier out of order")
+            tok = m.group(0) if m else c
+            out.append(tok); i += len(tok); atom, quant = False, 1; continue
+        elif c in "}]":
+            raise bad(f"a lone {c!r}")
+        elif c == "|":
+            out.append(c); atom, quant = False, 0
+        elif c == "^":
+            out.append(c); atom, quant = False, 0
+        elif c == "$":
+            out.append("(?![\\s\\S])"); atom, quant = False, 0   # the end of the input, not "or before a final newline"
+        elif c == ".":
+            out.append("[^\\n\\r\\u2028\\u2029]"); atom, quant = True, 0
+        else:
+            out.append(c); atom, quant = True, 0
+        i += 1
+    if cls:
+        raise bad("an unterminated class")
+    try:
+        r = re.compile("".join(out))
+    except re.error as e:
+        raise bad(str(e)) from None
+    _ECMA_PATTERNS[p] = r
+    return r
+
+
+def schema_patterns(schema: Any) -> Tuple[List[str], int]:
+    """every `pattern` value of a schema, and how many `patternProperties` it holds (iterative walk)"""
+    found, pp, stack = [], 0, [schema]
+    while stack:
+        o = stack.pop()
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "pattern" and isinstance(v, str):
+                    found.append(v)
+                    continue
+                if k == "patternProperties":
+                    pp += 1
+                stack.append(v)
+        elif isinstance(o, list):
+            stack.extend(o)
+    return found, pp
+
+
+def _pattern(validator, patrn, instance, schema):
+    if validator.is_type(instance, "string") and not ecma_pattern(patrn).search(instance):
+        from jsonschema.exceptions import ValidationError
+        yield ValidationError(f"{instance!r} does not match {patrn!r}")
+
+
+ECMA_KEYWORDS = {"pattern": _pattern}
+
+
+def _ecma_ready(docs: List[Any]) -> Optional[str]:
+    """None when every pattern of these schemas translates; else the reason (the check is then not run)"""
+    for d in docs:
+        found, pp = schema_patterns(d)
+        if pp:      # jsonschema also reads patternProperties inside additionalProperties / unevaluatedProperties, with re
+            return "the schema holds patternProperties, which this check does not read as ECMA-262"
+        for p in found:
+            try:
+                ecma_pattern(p)
+            except EcmaPatternUnsupported as e:
+                return f"{e} (ECMA-262 regular expression not translated)"
+    return None
 
 
 def _uniq_key(x: Any) -> Any:
@@ -656,7 +814,10 @@ def _spdx_validator(name: str):
     with open(os.path.join(_SPDX_SCHEMA_DIR, name), "rb") as fh:
         doc = json.loads(fh.read().decode("utf-8"))
     cls.check_schema(doc)
-    v = cls(doc)
+    why = _ecma_ready([doc])
+    if why:
+        return None, why
+    v = jsonschema.validators.extend(cls, ECMA_KEYWORDS)(doc)
     _SPDX_VALIDATORS[name] = v
     return v, None
 
