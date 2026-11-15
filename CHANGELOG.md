@@ -45,6 +45,8 @@
   downloaded on 15/11/2026.
 - SECURITY.md said `examples/self_evidence/` holds the project's own evidence; it is the worked example made by 0.4.0, and
   each release's own SBOM, ledger and signed pack are among its release assets: the text now says so.
+- **No commercial offer.** The README no longer offers evaluation pilots or a commercial licence: none is offered at
+  present; the project is free and open-source software, provided without warranty as the licence states.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 
