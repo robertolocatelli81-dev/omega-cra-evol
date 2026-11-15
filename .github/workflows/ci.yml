@@ -93,6 +93,8 @@ jobs:
       - name: gitleaks (whole history, pinned binary — the action fails on a root commit's parent)
         run: |
           curl -sSL -o gl.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+          # sha256 = gitleaks_8.24.3_checksums.txt of the release (compared on 15/11/2026)
+          echo "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  gl.tgz" | sha256sum -c -
           tar xzf gl.tgz gitleaks && ./gitleaks git . --redact --exit-code 1
   verifiers:
     runs-on: ubuntu-latest
@@ -118,7 +120,10 @@ jobs:
         run: CRA_VERIFY_GO=/tmp/cra-verify-go CRA_VERIFY_RUST=verifiers/rust/target/release/cra-verify python -B -m unittest discover -s tests -p 'test_receipt_design_20261013.py' -v
       - name: Official CycloneDX CLI — the four CycloneDX generator fixtures, and the 1.6 and 1.7 exports of every fixture and of the installed floor, must validate
         run: |
-          curl -sSL -o /tmp/cyclonedx https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 && chmod +x /tmp/cyclonedx
+          curl -sSL -o /tmp/cyclonedx https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64
+          # the release publishes no checksum file: sha256 of the binary as downloaded on 15/11/2026, so a changed file stops the job
+          echo "bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746  /tmp/cyclonedx" | sha256sum -c -
+          chmod +x /tmp/cyclonedx
           python - <<'PY'
           import glob, json, os, subprocess, sys
           sys.path.insert(0, ".")

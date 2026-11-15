@@ -40,6 +40,9 @@
   from the unpacked sdist (531 tests, 1 skipped). `release-build.yml` sets `SOURCE_DATE_EPOCH` to the commit time and
   rewrites the sdist with `scripts/repro_sdist.py` (sorted members, fixed times and owners, no gzip time; the
   content is checked unchanged): two builds of the same commit give the same sdist and the same wheel.
+- **The binaries the CI downloads are checked by SHA-256** before they run: gitleaks 8.24.3 against the checksum file
+  of its release; cyclonedx-cli 0.33.1, whose release publishes no checksum, against the digest of the binary as
+  downloaded on 15/11/2026.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 
