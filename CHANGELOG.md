@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — supply chain of the release measurable by third parties
+## 0.12.0 — 2026-11-16 — supply chain of the release measurable by third parties
 
 - **A seal's RFC 3161 token is bound to its record and can be verified** (`spec/TIME_ANCHOR.md`,
   `cra-lta-time-anchor/1`, written before the code). Until now `cra seal` stored a token whose imprint was the bare

@@ -1,7 +1,7 @@
 # The time anchor of a long-term seal record — `cra-lta-time-anchor/1` (2026-11-15)
 
 Status: normative for `omega_cra_evol.longterm` (`LongTermEvidence.seal`, `cra seal`) and `omega_cra_evol.time_anchor`
-from the release after 0.11.1. Written before the code (15/11/2026). It defines what the RFC 3161 token of a seal record
+from 0.12.0. Written before the code (15/11/2026). It defines what the RFC 3161 token of a seal record
 stamps, which time the record carries, and how a verifier checks both against a TSA it pins. Until now no token was
 verified by this package: `LongTermEvidence.verify` called a `timestamp_trust_fn` the caller had to write, and the
 package shipped none (its own tests passed `lambda r: True`, which accepts anything, the string `not base64!` included).
