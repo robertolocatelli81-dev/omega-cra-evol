@@ -128,17 +128,18 @@ which says nothing about identifiers.
 
 ## What is measured
 
-Re-run on 13/11/2026 on this release's code (omega-cra-evol 0.10.0; `git archive` of the commit, fresh
-virtual environments):
+Re-run on 15/11/2026 on this release's code (omega-cra-evol 0.11.0; a fresh clone of the commit, fresh virtual
+environments, every job of `.github/workflows/ci.yml` run as written):
 
-- The test suite: 466 tests, OK on Python 3.9.25, 3.11.2, 3.12.15 and 3.13.15 with `[sign]`, jsonschema, referencing and the
-  cryptovalid wheel; 1 skipped (the live feeds check, which needs the network).
+- The test suite: 525 tests, OK on Python 3.9.25, 3.11.2 and 3.12.15 with `[sign,schema]` and the cryptovalid wheel; 1
+  skipped (the live feeds check, which needs the network). Also 525 with cryptography only and 525 with no optional
+  dependency (the checks that need them are skipped and say why).
 - The attestation vectors: v0.1, 52 (10 valid, 42 each breaking one rule), and v0.2, 53 (10 valid, 43 refused): each
   gives the exit code and exactly the set of reason codes its `manifest.json` expects.
 - A v0.1 statement keeps its receipt: on the 52 v0.1 vectors of 0.8.0, the receipts of 0.8.0 and of this code are
-  byte for byte the same on 51; the 52nd used the v0.2 TypeURI as its "wrong" value and is now judged as v0.2. (Since
-  15/11/2026, in 0.11.0: 41 of those 51 are the same byte for byte, 10 differ only in `predicate_type`,
-  `"not_evaluated"` where the statement was not read from a trusted envelope; art14-filing v0.2 §5 as amended.)
+  byte for byte the same on 41 and differ only in `predicate_type` on 10 (`"not_evaluated"` where the statement was
+  not read from a trusted envelope; art14-filing v0.2 §5 as amended in 0.11.0); the 52nd used the v0.2 TypeURI as its
+  "wrong" value and is judged as v0.2.
 - The vendored sbomify documents (3 reports, 9 filings, all five stages: early warning, notification, intermediate,
   final report, users informed): every filing imports, and each of the 9 notices is attested (v0.2) and verifies with
   its drop file and ledger.
