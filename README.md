@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/robertolocatelli81-dev/omega-cra-evol/actions/workflows/ci.yml/badge.svg)](https://github.com/robertolocatelli81-dev/omega-cra-evol/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/omega-cra-evol)](https://pypi.org/project/omega-cra-evol/)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24172960.svg)](https://doi.org/10.5281/zenodo.24172960)
 
 _Renamed from `cra-evidence` to `omega-cra-evol` in 0.10.0 (13/11/2026). The name was changed on purpose, so that this project is not mistaken for other products with a similar name; it is not affiliated with any of them. The earlier name was also not available as a PyPI project name. Formats, exit codes and verification are unchanged; packs, ledgers and attestations made with earlier versions verify as before._
