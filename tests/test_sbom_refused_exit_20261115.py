@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """`cra sbom`: a refused document exits 2 with one line on stderr and nothing written; a document in another
-serialisation is named (CHANGELOG, Unreleased). Before, every refusal exited 1 with a traceback — the code of
+serialisation is named (CHANGELOG, 0.11.0). Before, every refusal exited 1 with a traceback — the code of
 "recorded, floor not met" — and an SPDX tag-value or CycloneDX XML file was refused as `JSONDecodeError: Expecting value`.
 Real processes, HOME and ledger in a temporary folder."""
 import json

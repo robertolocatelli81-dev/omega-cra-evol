@@ -152,7 +152,7 @@ class EvidenceLocker:
                              # is not one) never EVIDENCES the Annex I floor, even for a product that truly has no
                              # dependencies (state that in the SBOM's note instead)
                              # and an ingested CycloneDX or SPDX document must be conformant to its official schema
-                             # (CHANGELOG, Unreleased: CycloneDX rules 2/3, SPDX rules 1-4)
+                             # (CHANGELOG, 0.11.0: CycloneDX rules 2/3, SPDX rules 1-4)
                              "sbom_floor_met": resolved > 0 and (source.get("format") not in INGESTED_FORMATS or
                                                                  str(source.get("schema_check", "")).startswith("conformant to "))})
         except Exception:

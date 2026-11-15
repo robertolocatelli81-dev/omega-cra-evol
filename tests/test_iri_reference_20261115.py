@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""`iri-reference` in linear time (CHANGELOG, Unreleased): a regular expression of the RFC 3987 §2.2 ABNF replaces the
+"""`iri-reference` in linear time (CHANGELOG, 0.11.0): a regular expression of the RFC 3987 §2.2 ABNF replaces the
 Earley parser of rfc3987-syntax. Same answer as rfc3987-syntax on every string the official CycloneDX suite checks as
 iri-reference and on generated strings, except the three classes where rfc3987-syntax departs from the RFC; time
 measured on 20,000 URLs through the CycloneDX schema check (rfc3987-syntax: about 0.1 s per URL)."""

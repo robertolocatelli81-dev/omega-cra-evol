@@ -106,7 +106,7 @@ def build_bases(work):
     led = os.path.join(d, "cra.ledger.jsonl"); pack = os.path.join(d, "cra_pack.json")
     com = ["--ledger", led, "--product", "p", "--version", "1", "--tip-key", os.path.join(d, "tip.key")]
     # exit 1 = recorded with the floor not met: without the extra [schema] the document is "not checked" (CHANGELOG,
-    # Unreleased, rule 2); the bench measures the pack's verification states, not the floor
+    # 0.11.0, rule 2); the bench measures the pack's verification states, not the floor
     cli(["sbom"] + com + ["--from-cyclonedx", FIX], ok_codes=(0, 1)); cli(["pack"] + com + ["--out", pack])
     cli(["sign", pack, "--key", os.path.join(d, "sig.key"), "--signer-id", "ci"])
     os.remove(os.path.join(d, "tip.key")); os.remove(os.path.join(d, "sig.key"))

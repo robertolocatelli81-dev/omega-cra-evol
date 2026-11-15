@@ -382,7 +382,7 @@ def _main(argv: List[str] = None) -> int:
         src = a.from_cyclonedx or a.from_spdx
         if src:
             # a document refused at ingest (malformed, not conformant, a version without a schema, not JSON): exit 2,
-            # one line, nothing written — 1 stays "recorded, floor not met" (CHANGELOG, Unreleased)
+            # one line, nothing written — 1 stays "recorded, floor not met" (CHANGELOG, 0.11.0)
             ingest = sbom_from_cyclonedx if a.from_cyclonedx else sbom_from_spdx
             try:
                 rec = ingest(src, a.product, a.version, allow_nonconformant=a.allow_nonconformant)

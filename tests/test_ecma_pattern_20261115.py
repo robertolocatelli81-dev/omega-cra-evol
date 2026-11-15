@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""`pattern` is read as an ECMA-262 regular expression with the "u" flag (CHANGELOG, Unreleased; JSON Schema draft-07
+"""`pattern` is read as an ECMA-262 regular expression with the "u" flag (CHANGELOG, 0.11.0; JSON Schema draft-07
 Validation §4.3, 2020-12 Core §6.4). Before, jsonschema's Python `re.search` accepted, for example, a CycloneDX
 serialNumber with a final newline (Python's `$` also matches before a final "\\n"). Oracle: Node's own RegExp (when
 `node` is installed) on the shipped patterns and on generated strings."""

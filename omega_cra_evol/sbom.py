@@ -412,7 +412,7 @@ def _load_document(path: str, raw: Optional[bytes] = None) -> Tuple[bytes, Any]:
         raise ValueError(_not_json_reason(raw, e)) from None
 
 
-# What `cra sbom` reads is JSON; a document in another serialisation is named in the refusal (CHANGELOG, Unreleased,
+# What `cra sbom` reads is JSON; a document in another serialisation is named in the refusal (CHANGELOG, 0.11.0,
 # "a refused document exits 2 with one line"). Recognised from the start of the text, never parsed.
 _SPDX_TAG_VALUE = re.compile(r"\A(?:[ \t]*(?:#[^\n]*)?\r?\n)*[ \t]*SPDXVersion:[ \t]*SPDX-")
 
@@ -481,7 +481,7 @@ def _cdx_top_level_valid(d: Dict[str, Any]) -> None:
         raise ValueError(f"CycloneDX malformed: member outside the {spec} schema: " + ", ".join(unknown)[:120])
 
 
-# Schema check of an ingested CycloneDX document (CHANGELOG, Unreleased, rules 1-4). The official schemas of
+# Schema check of an ingested CycloneDX document (CHANGELOG, 0.11.0, rules 1-4). The official schemas of
 # CycloneDX/specification at 6470e34 ship in data/cyclonedx/ (SHA-256 in SOURCES.txt). jsonschema is the optional extra
 # [schema]: it skips a `format` it has no checker for without saying so, so every format the schemas use must have one.
 _CDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cyclonedx")
@@ -491,7 +491,7 @@ _VALIDATORS: Dict[str, Any] = {}
 
 # `iri-reference`: RFC 3987 §2.2 ABNF (with the rules it takes from RFC 3986) as one regular expression, matched whole.
 # jsonschema[format-nongpl] calls rfc3987-syntax, an Earley parser: ~0.1 s per URL, 220 s for an SBOM with 2,476 URLs
-# (CHANGELOG, Unreleased). Each repetition below is over characters that the next token cannot start with ("/", "?", "#",
+# (CHANGELOG, 0.11.0). Each repetition below is over characters that the next token cannot start with ("/", "?", "#",
 # "@", ":", "]" end them), so a failed match backtracks a bounded number of steps per character: linear time.
 _UCSCHAR = ("\u00a0-\ud7ff\uf900-\ufdcf\ufdf0-\uffef"
             "\U00010000-\U0001fffd\U00020000-\U0002fffd\U00030000-\U0003fffd\U00040000-\U0004fffd"
@@ -583,7 +583,7 @@ def _cdx_validator(spec: str):
     return v, None
 
 
-# `pattern` as an ECMA-262 regular expression with the "u" flag (CHANGELOG, Unreleased: JSON Schema
+# `pattern` as an ECMA-262 regular expression with the "u" flag (CHANGELOG, 0.11.0: JSON Schema
 # draft-07 Validation §4.3, 2020-12 Core §6.4). jsonschema uses Python's re.search, which reads `$`, `.`, `\d`, `\w` and
 # `\s` differently; they are translated, and any construct this translation does not cover raises EcmaPatternUnsupported
 # (the check is then "not checked", never a guess).
@@ -791,7 +791,7 @@ def cyclonedx_schema_check(d: Any) -> Tuple[str, str]:
     return "not_conformant", f"not conformant to bom-{spec}.schema.json at {where}: {err.message}"[:300]
 
 
-# Schema check of an ingested SPDX document (CHANGELOG, Unreleased, SPDX rules 1-5). The official schemas ship in
+# Schema check of an ingested SPDX document (CHANGELOG, 0.11.0, SPDX rules 1-5). The official schemas ship in
 # data/spdx/ (SHA-256 in SOURCES.txt); none of them uses a `format` keyword, so jsonschema alone checks them.
 _SPDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "spdx")
 _SPDX2_SCHEMAS = {"SPDX-2.2": "spdx-schema-v2.2.2.json", "SPDX-2.3": "spdx-schema-v2.3.json"}

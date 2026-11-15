@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""An SPDX document is checked against the official schema of the version it declares (CHANGELOG, Unreleased, SPDX
+"""An SPDX document is checked against the official schema of the version it declares (CHANGELOG, 0.11.0, SPDX
 rules 1-5). The controls are other projects' own test inputs (tests/data/spdx_controls, Apache-2.0): spdx/tools-java
 `BadJSON.spdx.json` and `SPDXWrongVersion.spdx.json`, sbomqs `spdx-no-timestamp` / `spdx-no-authors` (2.3 without
 `created` / with no creator) and `spdx-old-version` (SPDX-2.1). Before this change every one of them was recorded,

@@ -20,7 +20,7 @@ Single Reporting Platform (SRP):
 
 The technical documentation stays at the disposal of market surveillance authorities for **at least 10 years** after
 the product is placed on the market, or for the support period if longer (Art. 13(13)). Sources and re-reading dates:
-[`spec/LEGAL_BASIS.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/LEGAL_BASIS.md).
+[`spec/LEGAL_BASIS.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/LEGAL_BASIS.md).
 
 The SRP is a web portal. What was notified, under which ENISA field glossary, how complete, when the clock started and
 when it was filed lives in the firm's own tools — and may have to be shown, years later, to someone who does not run them.
@@ -103,19 +103,19 @@ which says nothing about identifiers.
 
 ## Proofs
 
-- **Specification before code:** the attestation format is [`spec/art14-filing/v0.1/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/art14-filing/v0.1/README.md)
+- **Specification before code:** the attestation format is [`spec/art14-filing/v0.1/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/art14-filing/v0.1/README.md)
   (in-toto Statement v1 in a DSSE envelope, Ed25519, closed predicate) and its delta
-  [`v0.2`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/art14-filing/v0.2/README.md) (vulnerability identifiers, case reference); the notice rules and the sbomify mapping are in
-  [`spec/SRP_FIELDS.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/SRP_FIELDS.md); the receipt of `cra verify` in [`spec/RECEIPT.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/RECEIPT.md).
-- **Attestation vectors:** [`spec/art14-filing/v0.1/vectors/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/tree/v0.10.0/spec/art14-filing/v0.1/vectors/) — 52 envelopes —
-  and [`v0.2/vectors/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/tree/v0.10.0/spec/art14-filing/v0.2/vectors/) — 53, with real CVE / EUVD identifiers in synthetic notices;
+  [`v0.2`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/art14-filing/v0.2/README.md) (vulnerability identifiers, case reference); the notice rules and the sbomify mapping are in
+  [`spec/SRP_FIELDS.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/SRP_FIELDS.md); the receipt of `cra verify` in [`spec/RECEIPT.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/RECEIPT.md).
+- **Attestation vectors:** [`spec/art14-filing/v0.1/vectors/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/tree/v0.11.0/spec/art14-filing/v0.1/vectors/) — 52 envelopes —
+  and [`v0.2/vectors/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/tree/v0.11.0/spec/art14-filing/v0.2/vectors/) — 53, with real CVE / EUVD identifiers in synthetic notices;
   each `manifest.json` gives every envelope's expected exit code and exact set of reason codes, for any other
   implementation to run.
-- **Verifiers in other languages, by the same author:** [`verifiers/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/verifiers/README.md) re-implements `cra verify`
+- **Verifiers in other languages, by the same author:** [`verifiers/`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/verifiers/README.md) re-implements `cra verify`
   in JavaScript (Node, no dependencies), Go (standard library) and Rust; `verifiers/differential.py` builds intact and
   tampered packs and requires the same verdict and the same failing layers from all of them. The ledger also follows
   the profile of cryptovalid's verifiers (same author).
-- **CI** ([`.github/workflows/ci.yml`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/.github/workflows/ci.yml)): the suites on Python 3.9, 3.11 and 3.12, with
+- **CI** ([`.github/workflows/ci.yml`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/.github/workflows/ci.yml)): the suites on Python 3.9, 3.11 and 3.12, with
   cryptography only and with no optional dependency; the differential oracle across Python, JS, Go and Rust; the
   official CycloneDX CLI and SPDX tools on the SBOM fixtures; gitleaks on the whole history. A weekly workflow
   re-reads ENISA's SRP glossary page and fails on any difference from the vendored snapshot.
@@ -137,7 +137,7 @@ virtual environments):
   gives the exit code and exactly the set of reason codes its `manifest.json` expects.
 - A v0.1 statement keeps its receipt: on the 52 v0.1 vectors of 0.8.0, the receipts of 0.8.0 and of this code are
   byte for byte the same on 51; the 52nd used the v0.2 TypeURI as its "wrong" value and is now judged as v0.2. (Since
-  15/11/2026, unreleased: 41 of those 51 are the same byte for byte, 10 differ only in `predicate_type`,
+  15/11/2026, in 0.11.0: 41 of those 51 are the same byte for byte, 10 differ only in `predicate_type`,
   `"not_evaluated"` where the statement was not read from a trusted envelope; art14-filing v0.2 §5 as amended.)
 - The vendored sbomify documents (3 reports, 9 filings, all five stages: early warning, notification, intermediate,
   final report, users informed): every filing imports, and each of the 9 notices is attested (v0.2) and verifies with
@@ -158,7 +158,7 @@ Without `[schema]` (`jsonschema[format-nongpl]`) `cra sbom --from-cyclonedx` / `
 `schema_check: not checked`, and the record never meets the SBOM floor; a document that fails its official schema
 (CycloneDX 1.2 … 1.7, SPDX 2.2, 2.3 and 3.0.1), or whose version has no schema here, is refused unless
 `--allow-nonconformant` is given (then recorded, marked, never floor met). A refused document exits 2 with one line on
-stderr and nothing is written; recorded with the floor not met exits 1. See the CHANGELOG, Unreleased.
+stderr and nothing is written; recorded with the floor not met exits 1. See the CHANGELOG, 0.11.0.
 
 The command is `cra` (also installed as `omega-cra-evol`, the name `pipx run` and `uvx` look for); the Python package is
 `omega_cra_evol`.
@@ -166,17 +166,17 @@ The command is `cra` (also installed as `omega-cra-evol`, the name `pipx run` an
 Container image (Linux x86_64, `[sign]` included, and `[schema]` in the images of the releases after 0.10.0; build provenance attested by the release workflow):
 
 ```
-gh attestation verify oci://ghcr.io/robertolocatelli81-dev/omega-cra-evol:0.10.0 --repo robertolocatelli81-dev/omega-cra-evol \
-  --cert-identity https://github.com/robertolocatelli81-dev/omega-cra-evol/.github/workflows/container.yml@refs/tags/v0.10.0 \
-  --source-ref refs/tags/v0.10.0 --deny-self-hosted-runners
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/robertolocatelli81-dev/omega-cra-evol:0.10.0 verify pack.json --ledger cra.ledger.jsonl
+gh attestation verify oci://ghcr.io/robertolocatelli81-dev/omega-cra-evol:0.11.0 --repo robertolocatelli81-dev/omega-cra-evol \
+  --cert-identity https://github.com/robertolocatelli81-dev/omega-cra-evol/.github/workflows/container.yml@refs/tags/v0.11.0 \
+  --source-ref refs/tags/v0.11.0 --deny-self-hosted-runners
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/robertolocatelli81-dev/omega-cra-evol:0.11.0 verify pack.json --ledger cra.ledger.jsonl
 ```
 
 GitHub Action (verifies the provenance of the image digest it pulled, then runs `cra` in the workspace, without
 network by default):
 
 ```yaml
-- uses: robertolocatelli81-dev/omega-cra-evol@v0.10.0
+- uses: robertolocatelli81-dev/omega-cra-evol@v0.11.0
   with:
     args: verify dist/pack.json --ledger evidence/cra.ledger.jsonl --trust-store evidence/trust.json
 ```
@@ -198,7 +198,7 @@ network by default):
 
 Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`trusted-signed` > `signed` > `anchored` >
 `FAIL`) and exits 0 verified, 1 a finding against the pack, 77 not assessed, 2 unusable input, 74 receipt not written
-([`spec/RECEIPT.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.10.0/spec/RECEIPT.md)).
+([`spec/RECEIPT.md`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.11.0/spec/RECEIPT.md)).
 
 ## Guarantees and assumptions
 

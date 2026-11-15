@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""A CycloneDX document is checked against the official schema of its version (CHANGELOG, Unreleased, rules 1-4).
+"""A CycloneDX document is checked against the official schema of its version (CHANGELOG, 0.11.0, rules 1-4).
 
 The official CycloneDX test suite (tests/data/cyclonedx_suite_6470e34: all 359 JSON files of 1.2 ... 1.7, Apache-2.0)
 is the external oracle: every `valid-*` file is recorded as conformant, every `invalid-*` (and `skip_invalid-*`) file

@@ -39,7 +39,8 @@ class Names(unittest.TestCase):
         self.assertIn('omega-cra-evol = "omega_cra_evol.cli:main"\n', t)
         self.assertRegex(t, r'(?m)^packages = \["omega_cra_evol", "cra_evidence"\]')
         self.assertEqual(omega_cra_evol.__version__, pyproject_version())
-        self.assertEqual(pyproject_version(), "0.10.0")
+        # the new name is the distribution's since 0.10.0 (13/11/2026)
+        self.assertGreaterEqual(tuple(int(x) for x in pyproject_version().split(".")), (0, 10, 0))
 
     def test_version_string_of_the_command(self):
         for mod in (NEW, OLD):

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — CycloneDX and SPDX documents are checked against the official schema of their version
+## 0.11.0 — 2026-11-15 — CycloneDX and SPDX documents are checked against the official schema of their version
 
 ### SPDX (rules written before the code, 15/11/2026)
 

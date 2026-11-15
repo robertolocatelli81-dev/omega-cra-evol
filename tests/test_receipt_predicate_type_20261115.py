@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""`cra verify-attestation`: the receipt's `predicate_type` is never a default (CHANGELOG, Unreleased; art14-filing v0.2
+"""`cra verify-attestation`: the receipt's `predicate_type` is never a default (CHANGELOG, 0.11.0; art14-filing v0.2
 §5 amended 15/11/2026). On 15/11/2026 the receipt named `…/art14-filing/v0.1` for each of 270 envelopes of other tools,
 156 of which declare another type (SLSA provenance v0.2 / v1, CycloneDX, cosign, VSA). Envelopes built here with those
 predicate types: untrusted -> "not_evaluated"; trusted -> the declared type, refused with `predicate_type`."""

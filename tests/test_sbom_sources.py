@@ -135,7 +135,7 @@ class TestIngestRules(unittest.TestCase):
     def test_duplicates_merged_are_counted_not_hidden(self):
         c = {"type": "library", "name": "actions/checkout", "version": "v4", "purl": "pkg:github/actions/checkout@v4"}
         p = self._doc("d.json", {"bomFormat": "CycloneDX", "specVersion": "1.7", "components": [c, dict(c), dict(c)]})
-        # not conformant to its schema (CHANGELOG Unreleased, rule 1): read with allow_nonconformant, the index rule is what is tested
+        # not conformant to its schema (CHANGELOG 0.11.0, rule 1): read with allow_nonconformant, the index rule is what is tested
         if SCHEMA_READY:
             with self.assertRaisesRegex(ValueError, "not conformant to bom-1.7.schema.json at components"):   # uniqueItems
                 sbom_from_cyclonedx(p, "x", "1")
@@ -145,7 +145,7 @@ class TestIngestRules(unittest.TestCase):
     def test_unknown_type_and_malformed_hash_are_not_trusted(self):
         p = self._doc("u.json", {"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
             {"type": "thing", "name": "a", "version": "1", "hashes": [{"alg": "SHA-256", "content": "zz"}]}]})
-        # not conformant to its schema (CHANGELOG Unreleased, rule 1): read with allow_nonconformant, the index rule is what is tested
+        # not conformant to its schema (CHANGELOG 0.11.0, rule 1): read with allow_nonconformant, the index rule is what is tested
         if SCHEMA_READY:
             with self.assertRaisesRegex(ValueError, "not conformant to bom-1.6.schema.json at components/0/type"):
                 sbom_from_cyclonedx(p, "x", "1")
