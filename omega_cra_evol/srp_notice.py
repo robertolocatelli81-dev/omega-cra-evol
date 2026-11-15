@@ -18,6 +18,15 @@ before the deadline.
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "ALL_STAGES", "COMMON_FIELDS", "CONVERSIONS", "CURRENT_GLOSSARY", "DryRunDrop", "GLOSSARIES",
+    "INCIDENT_FIELDS", "LEGACY_SOURCES", "PEC_OPTIONS", "RULE9_STAGES", "SOURCE_TOOLS", "SRPNotice",
+    "SRP_GLOSSARY_SOURCE", "STAGES", "STAGE_CODES", "STREAMS", "SourcedSRPNotice", "VULN_FIELDS",
+    "check_source_filing", "glossary", "schema", "template",
+]
+
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -245,7 +254,7 @@ class SRPNotice:
     source = None
     filing = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.stream not in STREAMS or self.stage not in ALL_STAGES:
             raise ValueError("unknown stream/stage")
         g = glossary(self.glossary_version)
@@ -404,7 +413,7 @@ class SourcedSRPNotice(SRPNotice):
     source: Dict[str, Any] = field(default_factory=dict)
     filing: Optional[Dict[str, Any]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not isinstance(self.source, dict) or not self.source:
             raise ValueError("a cra-srp/3 notice needs its source block")
         super().__post_init__()

@@ -1,0 +1,351 @@
+__init__.DryRunDrop: re-export
+__init__.EvidenceLocker: re-export
+__init__.SBOMComponent: re-export
+__init__.SBOMRecord: re-export
+__init__.SRPNotice: re-export
+__init__.VulnerabilityRecord: re-export
+__init__.__version__: const
+__init__.sbom_from_cyclonedx: re-export
+__init__.sbom_from_installed: re-export
+__init__.sbom_from_spdx: re-export
+__init__.srp_schema: re-export
+__init__.verify_pack: re-export
+applicability.ART14_DATE: const
+applicability.CHAPTER_IV_DATE: const
+applicability.DEPENDS: const
+applicability.FULL_APPLICATION_DATE: const
+applicability.GUIDANCE: const
+applicability.PERIOD_RULE: const
+applicability.READINGS: const
+applicability.RETENTION_YEARS: const
+applicability.ROLES: const
+applicability.START_RULE: const
+applicability.STREAMS: const
+applicability.SUPPORT_PERIOD_MIN_YEARS: const
+applicability.SUPPORT_STATUSES: const
+applicability.UPDATE_AVAILABILITY_YEARS: const
+applicability.add_years(d: datetime, years: int) -> datetime
+applicability.art14_obligation(trigger_awareness_utc: str, role: str='manufacturer', stream: str='vulnerability', vulnerability_awareness_utc: Optional[str]=None) -> Dict[str, Any]
+applicability.brussels_offset(at: datetime) -> timedelta
+applicability.day_start(y: int, m: int, d: int, reading: str) -> datetime
+applicability.legacy_product_scope(placed_on_market_utc: str, substantially_modified_utc: Optional[str]=None) -> Dict[str, Any]
+applicability.local_date(at: datetime, reading: str) -> date
+applicability.reporting_in_force(role: str, at_utc: str, stream: str='vulnerability') -> Dict[str, Any]
+applicability.retention_until(placed_on_market_utc: str, support_period_end_utc: Optional[str]=None) -> Dict[str, Any]
+applicability.support_period(placed_on_market_utc: str, support_period_end_utc: str, shorter_expected_use_reason: Optional[str]=None) -> Dict[str, Any]
+applicability.update_available_until(issued_utc: str, support_period_end_utc: Optional[str]=None) -> Dict[str, Any]
+applicability.user_information(awareness_utc: str, users_informed_utc: Optional[str]=None) -> Dict[str, Any]
+applicability.years_after(event: datetime, years: int, reading: str) -> datetime
+art14_attest.AttestRefused: class(ValueError)
+art14_attest.ID_FIELDS: const
+art14_attest.ID_FORMS: const
+art14_attest.MAX_ENVELOPE_BYTES: const
+art14_attest.NOT_CHECKABLE: const
+art14_attest.NOT_CHECKED: const
+art14_attest.NOT_EVALUATED: const
+art14_attest.PAYLOAD_TYPE: const
+art14_attest.PREDICATE_TYPE_MAX: const
+art14_attest.REGULATION: const
+art14_attest.STATEMENT_TYPE: const
+art14_attest.TYPE_OF: const
+art14_attest.TYPE_URI: const
+art14_attest.TYPE_URI_V02: const
+art14_attest.VERSIONS: const
+art14_attest.b64decode(s: Any) -> bytes
+art14_attest.build_statement(drop_path: str, ledger_path: str, product_id: Optional[str]=None, product_version: Optional[str]=None, attested_at: Optional[datetime]=None, filing: Optional[Dict[str, str]]=None, predicate: str='v0.1', case_reference: Optional[Dict[str, str]]=None) -> bytes
+art14_attest.check_statement(payload: bytes) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, str]], List[str]]
+art14_attest.notice_identifiers(p: Dict[str, Any]) -> List[Dict[str, Any]]
+art14_attest.pae(payload_type: str, body: bytes) -> bytes
+art14_attest.reference_ok(s: Any) -> bool
+art14_attest.sign_envelope(payload: bytes, key: Tuple[Any, str], signer_id: str, payload_type: str=PAYLOAD_TYPE) -> Dict[str, Any]
+art14_attest.verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optional[str]=None, ledger_path: Optional[str]=None) -> Dict[str, Any]
+art14_attest.z(d: datetime) -> str
+canonical.MAX_DEPTH: const
+canonical.MAX_SAFE_INT: const
+canonical.canonical_bytes(obj: Any) -> bytes
+canonical.deep_recursion: class()
+canonical.deep_recursion.__enter__(self) -> 'deep_recursion'
+canonical.deep_recursion.__exit__(self, *a: object) -> None
+canonical.floatfree(obj: Any) -> Any
+canonical.nesting_depth(text: str) -> int
+canonical.sha256_hex(obj: Any) -> str
+canonical.sha3_hex(obj: Any) -> str
+cli.EX_IOERR: const
+cli.ReceiptNotWritten: class(Exception)
+cli.main(argv: List[str]=None) -> int
+feeds.EUVD_KEV_DUMP: const
+feeds.KEV_POSITIVE_CONTROL: const
+feeds.KEV_URL: const
+feeds.OSV_BATCH: const
+feeds.OSV_BATCH_MAX: const
+feeds.OSV_QUERY: const
+feeds.OSV_VULN: const
+feeds.POSITIVE_CONTROL: const
+feeds.cisa_kev_ids(timeout: int=60) -> Dict[str, Any]
+feeds.euvd_kev_ids(timeout: int=60) -> Dict[str, Any]
+feeds.exploitation_signal(vuln_ids: List[str], kev: Optional[Dict[str, Any]]=None, euvd: Optional[Dict[str, Any]]=None) -> Dict[str, Any]
+feeds.osv_positive_control(timeout: int=30) -> Dict[str, Any]
+feeds.osv_query_batch(components: List[Dict[str, str]], timeout: int=30) -> Dict[str, Any]
+kms.KMSSigner: class()
+kms.KMSSigner.__init__(self, key_id: str, region: str, access_key: Optional[str]=None, secret_key: Optional[str]=None, session_token: Optional[str]=None, endpoint: Optional[str]=None, timeout: int=15)
+kms.KMSSigner.sign(self, data: bytes) -> bytes
+kms.KMSSigner.as_key(self) -> Tuple['KMSSigner', str]
+kms.derive_signing_key(secret_key: str, datestamp: str, region: str, service: str) -> bytes
+kms.load_creds_file(path: str) -> Dict[str, str]
+kms.sigv4_headers(host: str, region: str, service: str, target: str, body: bytes, access_key: str, secret_key: str, session_token: Optional[str], amzdate: str, datestamp: str) -> Dict[str, str]
+ledger.FileTooLarge: class(UnreadableFile)
+ledger.FileTooLarge.__init__(self, cap: int) -> None
+ledger.GENESIS: const
+ledger.Ledger: class()
+ledger.Ledger.__init__(self, path: str, tip_key: Optional[object]=None, allow_unlocked: bool=False)
+ledger.Ledger.append(self, data: Dict[str, Any], ts: Optional[str]=None) -> Dict[str, Any]
+ledger.Ledger.entries(self, f: Optional[BinaryIO]=None) -> Iterator[Dict[str, Any]]
+ledger.Ledger.verify(self, entries: Optional[List[Dict[str, Any]]]=None) -> Dict[str, Any]
+ledger.MAX_DOC_BYTES: const
+ledger.MAX_LINE_BYTES: const
+ledger.NotRegularFile: class(UnreadableFile)
+ledger.NotRegularFile.__init__(self) -> None
+ledger.UnreadableFile: class(OSError)
+ledger.entry_hash(entry: Dict[str, Any]) -> str
+ledger.is_blank_line(content: bytes) -> bool
+ledger.line_content(raw: bytes) -> bytes
+ledger.load_trust_store(text: str) -> Dict[str, str]
+ledger.open_regular(path: str) -> BinaryIO
+ledger.parse_line(line: str, allow_floats: bool=False) -> Any
+ledger.read_regular(path: str, cap: int=MAX_DOC_BYTES) -> bytes
+locker.ATTACHMENT_FORMATS: const
+locker.EvidenceLocker: class()
+locker.EvidenceLocker.__init__(self, ledger_path: str, product_id: str, product_version: str, tip_key: Optional[Tuple[Any, str]]=None, support_period_end: Optional[str]=None, allow_unlocked: bool=False)
+locker.EvidenceLocker.record_sbom(self, sbom: SBOMRecord, source_path: Optional[str]=None, store: bool=True, spec_version: str='1.6') -> Dict[str, Any]
+locker.EvidenceLocker.record_vulnerability(self, rec: VulnerabilityRecord, attachments: Optional[List[Dict[str, Any]]]=None) -> Dict[str, Any]
+locker.EvidenceLocker.record_notice(self, notice: SRPNotice, drop_result: Optional[Dict[str, Any]]=None, divergence_reason: Optional[str]=None, imported: Optional[Dict[str, Any]]=None) -> Dict[str, Any]
+locker.EvidenceLocker.bind_notice(self, notice: SRPNotice, divergence_reason: Optional[str]=None, pending: Tuple[Dict[str, Any], ...]=()) -> List[Any]
+locker.EvidenceLocker.verify(self) -> Dict[str, Any]
+locker.EvidenceLocker.evidence_pack(self, out_path: str) -> Dict[str, Any]
+locker.EvidenceLocker.seal_longterm(self, pack_sha3: str, alg: str='ed25519', ts_source: str='asserted', t: Optional[float]=None, previous: Optional[Dict[str, Any]]=None, key: Optional[Tuple[Any, str]]=None, token_b64: Optional[str]=None, external_digest: bool=False) -> Dict[str, Any]
+locker.HONEST_SCOPE: const
+locker.HONEST_SCOPE_MARK: const
+locker.LEGAL_BASIS: const
+locker.PACK_KIND: const
+locker.RECORD_KINDS: const
+locker.RETENTION_YEARS: const
+locker.SOURCES_SUFFIX: const
+locker.source_file(ledger_path: str, sha256: str) -> str
+locker.sources_dir(ledger_path: str) -> str
+longterm.AlgorithmPolicy: class()
+longterm.AlgorithmPolicy.broken_after: Dict[str, Optional[float]]
+longterm.AlgorithmPolicy.trusted_at(self, alg: str, t: float) -> bool
+longterm.AlgorithmPolicy.nist_ir_8547(cls) -> 'AlgorithmPolicy'
+longterm.DEFAULT_HASH: const
+longterm.HASHES: const
+longterm.LongTermEvidence: class()
+longterm.LongTermEvidence.evidence_digest: str
+longterm.LongTermEvidence.records: List[Dict]
+longterm.LongTermEvidence.seal(self, signer: Signer, t: float, ts_source: str='asserted', stronger_digest: Optional[str]=None, hash_alg: str=DEFAULT_HASH, token_b64: Optional[str]=None) -> Dict
+longterm.LongTermEvidence.verify(self, now: float, policy: Optional[AlgorithmPolicy]=None, timestamp_trust_fn: Optional[Callable[[Dict], bool]]=None, trusted_pubs: Optional[set]=None) -> Dict
+longterm.LongTermEvidence.renewal_due(self, now: float, policy: Optional[AlgorithmPolicy]=None, margin: float=0.0) -> Dict
+longterm.LongTermEvidence.to_dict(self) -> Dict
+longterm.LongTermEvidence.from_dict(cls, d: Dict) -> 'LongTermEvidence'
+longterm.NIST_IR_8547_DEPRECATED_AFTER: const
+longterm.NIST_IR_8547_DISALLOWED_AFTER: const
+longterm.REGISTRY: const
+longterm.Signer: class()
+longterm.Signer.__init__(self, alg: str, key: Optional[tuple]=None)
+longterm.Signer.sign(self, msg: bytes) -> str
+longterm.register_algorithm(name: str, gen: Callable, sign: Callable, verify: Callable) -> None
+longterm.register_hash(name: str, ctor: Callable) -> None
+notice_check.MAX_DROP_BYTES: const
+notice_check.check_notice(drop_path: str, ledger_path: Optional[str]=None) -> Dict[str, Any]
+notice_check.load_json_object(path: str, cap: int=MAX_DROP_BYTES) -> Dict[str, Any]
+outputs.OutputNotWritten: class(OSError)
+outputs.TipNotWritten: class(OutputNotWritten)
+outputs.commit_tmp(tmp: str, path: str) -> None
+outputs.refuse_directory(path: str) -> None
+outputs.write_file(path: str, text: str) -> None
+outputs.write_tmp(path: str, text: Union[str, bytes]) -> str
+rfc3161_token.OID_SHA3_256: const
+rfc3161_token.OID_SIGNED_DATA: const
+rfc3161_token.OID_TSTINFO: const
+rfc3161_token.OTS_MAGIC: const
+rfc3161_token.TS_SOURCES: const
+rfc3161_token.TokenRefused: class(ValueError)
+rfc3161_token.check_token(ts_source: str, token_b64: str, evidence_digest: str) -> None
+rfc3161_token.rfc3161_imprint(der: bytes) -> Tuple[str, bytes]
+sbom.CYCLONEDX_COMPONENT_TYPES: const
+sbom.CYCLONEDX_EXPORT_VERSIONS: const
+sbom.ECMA_KEYWORDS: const
+sbom.EcmaPatternUnsupported: class(ValueError)
+sbom.INGESTED_FORMATS: const
+sbom.IRI_REFERENCE: const
+sbom.MAX_SOURCE_BYTES: const
+sbom.PURL_TYPE_TO_OSV: const
+sbom.SBOMComponent: class()
+sbom.SBOMComponent.name: str
+sbom.SBOMComponent.version: str
+sbom.SBOMComponent.supplier: str
+sbom.SBOMComponent.purl: str
+sbom.SBOMComponent.sha256: str
+sbom.SBOMComponent.license: str
+sbom.SBOMComponent.type: str
+sbom.SBOMComponent.cpe: str
+sbom.SBOMRecord: class()
+sbom.SBOMRecord.product_id: str
+sbom.SBOMRecord.product_version: str
+sbom.SBOMRecord.components: List[SBOMComponent]
+sbom.SBOMRecord.depth: str
+sbom.SBOMRecord.record_id: str
+sbom.SBOMRecord.generated_utc: str
+sbom.SBOMRecord.source: Dict[str, Any]
+sbom.SBOMRecord.product_type: str
+sbom.SBOMRecord.edges: List[List[str]]
+sbom.SBOMRecord.__post_init__(self) -> None
+sbom.SBOMRecord.canonical_hash(self) -> str
+sbom.SBOMRecord.to_cyclonedx_min(self, spec_version: str='1.6') -> Dict[str, Any]
+sbom.SCHEMA_TEXT_MAX: const
+sbom.SPDX3_CONTEXT_301: const
+sbom.SPDX_PURPOSE_TO_TYPE: const
+sbom.components_for_osv(record: 'SBOMRecord') -> List[Dict[str, str]]
+sbom.cyclonedx_schema_check(d: Any) -> Tuple[str, str]
+sbom.dedup(components: List[SBOMComponent]) -> List[SBOMComponent]
+sbom.ecma_pattern(p: str) -> 're.Pattern[str]'
+sbom.installed_license(meta: Any) -> str
+sbom.is_iri_reference(instance: Any) -> bool
+sbom.is_spdx_expression(value: str) -> bool
+sbom.is_spdx_id(value: str) -> bool
+sbom.marker_applies(marker: str) -> Optional[bool]
+sbom.pypi_purl(name: str, version: str) -> str
+sbom.reingest(raw: bytes, path: str, fmt: str, product_id: str, product_version: str) -> SBOMRecord
+sbom.resolved_components(record: 'SBOMRecord') -> List[SBOMComponent]
+sbom.sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes]=None, allow_nonconformant: bool=False) -> SBOMRecord
+sbom.sbom_from_installed(product_id: str, product_version: str, top_level: List[str], transitive: bool=False) -> SBOMRecord
+sbom.sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Optional[bytes]=None, allow_nonconformant: bool=False) -> SBOMRecord
+sbom.schema_patterns(schema: Any) -> Tuple[List[str], int]
+sbom.source_fingerprint(path: str) -> Dict[str, Any]
+sbom.spdx_schema_check(d: Any) -> Tuple[str, str]
+sbomify_import.ABSENT_AT_SOURCE: const
+sbomify_import.DATE_IDS: const
+sbomify_import.EU_MEMBER_STATES: const
+sbomify_import.GLOSSARY_FROM: const
+sbomify_import.ImportRefused: class(ValueError)
+sbomify_import.ImportStopped: class(Exception)
+sbomify_import.ImportStopped.__init__(self, cause: BaseException, event: Any, recorded: List[Dict[str, Any]], not_recorded: List[str])
+sbomify_import.MAPPING: const
+sbomify_import.MAX_SOURCE_BYTES: const
+sbomify_import.NO_OPTION: const
+sbomify_import.PEC_IDS: const
+sbomify_import.PRODUCT_TYPES: const
+sbomify_import.SBOMIFY_STAGES: const
+sbomify_import.TOOL: const
+sbomify_import.check_filing(f: Any, name: str) -> None
+sbomify_import.check_listed_filing(f: Any, where: str) -> None
+sbomify_import.check_report(rep: Dict[str, Any], name: str) -> None
+sbomify_import.glossary_for(filed_at: str) -> str
+sbomify_import.load(raw: bytes, name: str) -> Dict[str, Any]
+sbomify_import.lookup(kind: str, sid: str) -> Optional[str]
+sbomify_import.place_filing(filing: Dict[str, Any], kind: str, name: str='filing') -> Dict[str, Any]
+sbomify_import.plan(report_raw: bytes, filing_raws: List[Tuple[str, bytes]], product_id: str, tool_version: str, now: Optional[datetime]=None, new_id: Optional[Callable[[], str]]=None) -> Dict[str, Any]
+sbomify_import.run_import(report_path: str, filing_paths: List[str], locker: Any, drop_dir: str, tool_version: str, now: Optional[datetime]=None, new_id: Optional[Callable[[], str]]=None) -> Dict[str, Any]
+sbomify_import.snapshot_items(filing: Dict[str, Any]) -> List[Tuple[str, Any]]
+signing.HEX128_RE: const
+signing.HEX64_RE: const
+signing.INSTANT_RE: const
+signing.SIDECAR_KEYS: const
+signing.SIG_KIND: const
+signing.TIP_KIND: const
+signing.WEAK_ED25519_KEYS: const
+signing.is_instant(s: Any) -> bool
+signing.keygen(path: str) -> Dict[str, str]
+signing.load_key(path: str) -> Tuple[Any, str]
+signing.pack_digest(pack: Dict[str, Any]) -> str
+signing.sidecar_fields_ok(side: Dict[str, Any]) -> bool
+signing.sidecar_path(pack_path: str) -> str
+signing.sidecar_unknown_fields(side: Dict[str, Any]) -> list
+signing.sign_pack(pack_path: str, key: Tuple[Any, str], signer_id: str) -> Dict[str, Any]
+signing.signed_payload(side: Dict[str, Any]) -> bytes
+signing.tip_payload(entries: int, ledger_id: str, tip_sha256: str, ts: str) -> bytes
+signing.verify_pack_signature(pack_path: str, trust_store: Optional[Dict[str, str]]=None, pack: Optional[Dict[str, Any]]=None) -> Dict[str, Any]
+signing.verify_tip(tip: Dict[str, Any], trusted_pubkey_hex: str, entries: int, ledger_id: str, tip_sha256: str) -> Dict[str, Any]
+signing.weak_ed25519_key(pub_hex: str) -> bool
+signing.write_tip(out: str, key: Tuple[Any, str], entries: int, ledger_id: str, tip_sha256: str, ts: Optional[str]=None) -> Dict[str, Any]
+srp_notice.ALL_STAGES: const
+srp_notice.COMMON_FIELDS: const
+srp_notice.CONVERSIONS: const
+srp_notice.CURRENT_GLOSSARY: const
+srp_notice.DryRunDrop: class()
+srp_notice.DryRunDrop.__init__(self, drop_dir: str)
+srp_notice.DryRunDrop.prepare(self, notice: SRPNotice) -> Dict[str, Any]
+srp_notice.DryRunDrop.payload_path(self, notice: SRPNotice) -> Path
+srp_notice.GLOSSARIES: const
+srp_notice.INCIDENT_FIELDS: const
+srp_notice.LEGACY_SOURCES: const
+srp_notice.PEC_OPTIONS: const
+srp_notice.RULE9_STAGES: const
+srp_notice.SOURCE_TOOLS: const
+srp_notice.SRPNotice: class()
+srp_notice.SRPNotice.stream: str
+srp_notice.SRPNotice.stage: str
+srp_notice.SRPNotice.fields: Dict[str, Any]
+srp_notice.SRPNotice.generated_utc: str
+srp_notice.SRPNotice.notice_id: str
+srp_notice.SRPNotice.previous_fields: Optional[Dict[str, Any]]
+srp_notice.SRPNotice.glossary_version: str
+srp_notice.SRPNotice.__post_init__(self) -> None
+srp_notice.SRPNotice.case_value(self, k: str) -> Any
+srp_notice.SRPNotice.missing(self) -> List[str]
+srp_notice.SRPNotice.complete(self) -> Optional[bool]
+srp_notice.SRPNotice.deadline_utc(self) -> Optional[str]
+srp_notice.SRPNotice.canonical_hash(self) -> str
+srp_notice.SRPNotice.payload(self) -> Dict[str, Any]
+srp_notice.SRP_GLOSSARY_SOURCE: const
+srp_notice.STAGES: const
+srp_notice.STAGE_CODES: const
+srp_notice.STREAMS: const
+srp_notice.SourcedSRPNotice: class(SRPNotice)
+srp_notice.SourcedSRPNotice.source: Dict[str, Any]
+srp_notice.SourcedSRPNotice.filing: Optional[Dict[str, Any]]
+srp_notice.SourcedSRPNotice.__post_init__(self) -> None
+srp_notice.VULN_FIELDS: const
+srp_notice.check_source_filing(source: Any, filing: Any, stream: str, glossary_version: str) -> None
+srp_notice.glossary(version: str=CURRENT_GLOSSARY) -> Dict[str, Any]
+srp_notice.schema(stream: str, glossary_version: str=CURRENT_GLOSSARY) -> Dict[str, Dict[str, Any]]
+srp_notice.template(stream: str, stage: str, glossary_version: str=CURRENT_GLOSSARY) -> Dict[str, Any]
+verify_pack.ENTRY_KEYS: const
+verify_pack.EXTERNAL_FORMATS: const
+verify_pack.FAIL_CLOSED_REASONS: const
+verify_pack.FAULT_ENV: const
+verify_pack.HEX64: const
+verify_pack.PACK_KEYS: const
+verify_pack.POLICY_UNMET: const
+verify_pack.REASONS: const
+verify_pack.REFUSAL_CLASSES: const
+verify_pack.STATES: const
+verify_pack.STATES_VOCABULARY: const
+verify_pack.SUBJECTS: const
+verify_pack.ledger_file_name_ok(v: Any) -> bool
+verify_pack.verify_pack(path: str, ledger_path: Optional[str]=None, trust_store: Optional[Dict[str, str]]=None, log_pubkey_hex: Optional[str]=None, require_sources: bool=False) -> Dict[str, Any]
+vuln.CLOCK_SKEW: const
+vuln.EARLY_WARNING_HOURS: const
+vuln.FINAL_REPORT_DAYS_AFTER_FIX: const
+vuln.KINDS: const
+vuln.NOTIFICATION_HOURS: const
+vuln.STATUSES: const
+vuln.VulnerabilityRecord: class()
+vuln.VulnerabilityRecord.product_id: str
+vuln.VulnerabilityRecord.vuln_id: str
+vuln.VulnerabilityRecord.actively_exploited: bool
+vuln.VulnerabilityRecord.awareness_utc: str
+vuln.VulnerabilityRecord.status: str
+vuln.VulnerabilityRecord.exploitation_source: str
+vuln.VulnerabilityRecord.corrective_available_utc: Optional[str]
+vuln.VulnerabilityRecord.record_id: str
+vuln.VulnerabilityRecord.details: Dict[str, Any]
+vuln.VulnerabilityRecord.kind: str
+vuln.VulnerabilityRecord.early_warning_sent_utc: Optional[str]
+vuln.VulnerabilityRecord.notification_sent_utc: Optional[str]
+vuln.VulnerabilityRecord.final_report_sent_utc: Optional[str]
+vuln.VulnerabilityRecord.__post_init__(self) -> None
+vuln.VulnerabilityRecord.deadlines(self) -> Dict[str, Optional[str]]
+vuln.VulnerabilityRecord.overdue(self, now_utc: Optional[datetime]=None) -> Dict[str, Any]
+vuln.VulnerabilityRecord.canonical_hash(self) -> str
+vuln.add_months(d: datetime, months: int) -> datetime
+vuln.parse_utc(ts: str) -> datetime

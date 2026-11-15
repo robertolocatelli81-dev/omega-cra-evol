@@ -18,6 +18,15 @@ early warning is recorded as incomplete. A failure while appending to the ledger
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "ABSENT_AT_SOURCE", "DATE_IDS", "EU_MEMBER_STATES", "GLOSSARY_FROM", "ImportRefused", "ImportStopped",
+    "MAPPING", "MAX_SOURCE_BYTES", "NO_OPTION", "PEC_IDS", "PRODUCT_TYPES", "SBOMIFY_STAGES", "TOOL",
+    "check_filing", "check_listed_filing", "check_report", "glossary_for", "load", "lookup", "place_filing",
+    "plan", "run_import", "snapshot_items",
+]
+
 import hashlib
 import os
 import re

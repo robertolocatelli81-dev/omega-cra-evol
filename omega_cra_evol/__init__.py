@@ -8,3 +8,10 @@ from .srp_notice import SRPNotice, DryRunDrop, schema as srp_schema  # noqa: F40
 from .locker import EvidenceLocker  # noqa: F401
 from .verify_pack import verify_pack  # noqa: F401
 
+
+# The stable tier of the API (API.md): these names, and nothing else, are what `import omega_cra_evol` promises.
+# A literal list: type checkers read `__all__` only in this form, and it overrides every other rule of the interface.
+__all__ = [
+    "DryRunDrop", "EvidenceLocker", "SBOMComponent", "SBOMRecord", "SRPNotice", "VulnerabilityRecord", "__version__",
+    "sbom_from_cyclonedx", "sbom_from_installed", "sbom_from_spdx", "srp_schema", "verify_pack",
+]

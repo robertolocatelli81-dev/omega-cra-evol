@@ -15,6 +15,12 @@ anywhere except the OSV/KEV/EUVD read-only queries (`feeds`, and `vuln --source 
 --assert-source)."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "EX_IOERR", "ReceiptNotWritten", "main",
+]
+
 import argparse
 import json
 import os

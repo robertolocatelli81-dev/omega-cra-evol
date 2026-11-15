@@ -46,7 +46,17 @@ shorter expected use is justified, or whether the steward's scope condition is m
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "ART14_DATE", "CHAPTER_IV_DATE", "DEPENDS", "FULL_APPLICATION_DATE", "GUIDANCE", "PERIOD_RULE", "READINGS",
+    "RETENTION_YEARS", "ROLES", "START_RULE", "STREAMS", "SUPPORT_PERIOD_MIN_YEARS", "SUPPORT_STATUSES",
+    "UPDATE_AVAILABILITY_YEARS", "add_years", "art14_obligation", "brussels_offset", "day_start",
+    "legacy_product_scope", "local_date", "reporting_in_force", "retention_until", "support_period",
+    "update_available_until", "user_information", "years_after",
+]
+
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from .vuln import add_months, parse_utc
@@ -102,7 +112,7 @@ def day_start(y: int, m: int, d: int, reading: str) -> datetime:
     raise AssertionError("unreachable: Brussels is UTC+1 or UTC+2")
 
 
-def local_date(at: datetime, reading: str):
+def local_date(at: datetime, reading: str) -> date:
     """The calendar date of the instant `at` under `reading`."""
     u = at.astimezone(timezone.utc)
     return (u if reading == "utc" else u + brussels_offset(u)).date()

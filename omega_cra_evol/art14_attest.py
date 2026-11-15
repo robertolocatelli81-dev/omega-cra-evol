@@ -14,6 +14,15 @@ that the notice reached ENISA's platform, that the awareness instant is true, co
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "AttestRefused", "ID_FIELDS", "ID_FORMS", "MAX_ENVELOPE_BYTES", "NOT_CHECKABLE", "NOT_CHECKED",
+    "NOT_EVALUATED", "PAYLOAD_TYPE", "PREDICATE_TYPE_MAX", "REGULATION", "STATEMENT_TYPE", "TYPE_OF",
+    "TYPE_URI", "TYPE_URI_V02", "VERSIONS", "b64decode", "build_statement", "check_statement",
+    "notice_identifiers", "pae", "reference_ok", "sign_envelope", "verify_envelope", "z",
+]
+
 import base64
 import hashlib
 import json

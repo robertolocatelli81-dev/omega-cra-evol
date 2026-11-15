@@ -9,6 +9,12 @@ release notes with the public key). Credentials from arguments or AWS_ACCESS_KEY
 AWS_SESSION_TOKEN; a custom endpoint must be https or loopback (a session token must never travel in clear)."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "KMSSigner", "derive_signing_key", "load_creds_file", "sigv4_headers",
+]
+
 import base64
 import datetime
 import hashlib

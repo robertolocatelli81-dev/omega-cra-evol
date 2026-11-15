@@ -14,6 +14,13 @@ an awareness between 00:00 Europe/Brussels and 00:00 UTC of that day depends on 
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "CLOCK_SKEW", "EARLY_WARNING_HOURS", "FINAL_REPORT_DAYS_AFTER_FIX", "KINDS", "NOTIFICATION_HOURS",
+    "STATUSES", "VulnerabilityRecord", "add_months", "parse_utc",
+]
+
 import re
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -71,7 +78,7 @@ class VulnerabilityRecord:
     notification_sent_utc: Optional[str] = None
     final_report_sent_utc: Optional[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not str(self.vuln_id).strip():
             raise ValueError("vuln_id empty")
         if self.kind not in KINDS:

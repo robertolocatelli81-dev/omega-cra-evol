@@ -47,6 +47,15 @@
   each release's own SBOM, ledger and signed pack are among its release assets: the text now says so.
 - **No commercial offer.** The README no longer offers evaluation pilots or a commercial licence: none is offered at
   present; the project is free and open-source software, provided without warranty as the licence states.
+- **The public API is declared** (`API.md`): three tiers — stable (the twelve names of `omega_cra_evol.__all__`),
+  provisional (the `__all__` of each module, now a literal list in all 19 modules), private (everything else); SemVer
+  and the deprecation rule for the 0.x line; the conditions for 1.0. The stable and provisional names are fully
+  annotated; `tests/test_api_surface_20261115.py` compares the interface with a versioned snapshot
+  (`tests/data/api_surface.txt`, regenerated with `scripts/api_surface.py`) and lets the private signatures without
+  annotation only decrease. `canonical.deep_recursion.__exit__` returns `None` instead of `False` (same behaviour:
+  the exception is never suppressed), which also lets a type checker see that the code after its `with` blocks is
+  unreachable. `py.typed` is not shipped yet: `mypy` reports 82 errors in the package (15/11/2026). The interface
+  and its tests were proposed by Athena's review of 15/11/2026.
 - **Install from PyPI** first in the README. SECURITY.md also names GitHub's private vulnerability reporting, enabled
   on the repository on 15/11/2026.
 

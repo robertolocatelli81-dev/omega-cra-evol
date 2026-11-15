@@ -7,6 +7,12 @@ notice_sha3) must come out again. With a ledger, the chain is verified and the r
 the file's bytes (drop.drop_sha3) and agree with it."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "MAX_DROP_BYTES", "check_notice", "load_json_object",
+]
+
 import hashlib
 import json
 import os

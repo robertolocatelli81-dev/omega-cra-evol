@@ -12,6 +12,13 @@ a trusted time. A seal with a well-formed token is still `temporal_trust: ASSUME
 injected at verification."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "OID_SHA3_256", "OID_SIGNED_DATA", "OID_TSTINFO", "OTS_MAGIC", "TS_SOURCES", "TokenRefused", "check_token",
+    "rfc3161_imprint",
+]
+
 import base64
 import binascii
 from typing import List, Tuple

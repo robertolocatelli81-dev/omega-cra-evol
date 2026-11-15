@@ -14,12 +14,20 @@ that does not parse is never continued from (refused, recovery is a human decisi
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "FileTooLarge", "GENESIS", "Ledger", "MAX_DOC_BYTES", "MAX_LINE_BYTES", "NotRegularFile", "UnreadableFile",
+    "entry_hash", "is_blank_line", "line_content", "load_trust_store", "open_regular", "parse_line",
+    "read_regular",
+]
+
 import json
 import logging
 import os
 import stat
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional, Tuple
 
 from .canonical import MAX_DEPTH, canonical_bytes, deep_recursion, nesting_depth, sha256_hex
 
@@ -68,7 +76,7 @@ class FileTooLarge(UnreadableFile):
 _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0) | getattr(os, "O_CLOEXEC", 0)
 
 
-def open_regular(path: str):
+def open_regular(path: str) -> BinaryIO:
     """Open for reading WITHOUT blocking (a FIFO with no writer, a device) and keep the descriptor only if it is a
     regular file — decided on the open descriptor (fstat), so the check and the read see the same object. A FIFO,
     /dev/zero (directly or through a symlink), a socket or a directory raise NotRegularFile before any byte is read.
@@ -135,7 +143,7 @@ def _refuse_float(tok: str):
     raise ValueError(f"floating-point number {tok} (the profile forbids floats: `10.0` and `10` would hash alike in one reader and not in another)")
 
 
-def parse_line(line: str, allow_floats: bool = False):
+def parse_line(line: str, allow_floats: bool = False) -> Any:
     """The profile's strict JSON: no NaN/Infinity, no duplicate keys, no floats (not even integral ones such as 10.0 —
     JSON.parse would silently turn them into 10), no integer outside ±(2^53-1). allow_floats=True only for third-party
     generator documents, which are stored as bytes, never canonicalised (numbers are then read as JSON allows)."""
@@ -232,7 +240,7 @@ STATE_VERSION = 1
 _HASH_CHUNK = 1 << 20
 
 
-def _prefix_sha256(f, size: int) -> Optional[str]:
+def _prefix_sha256(f: BinaryIO, size: int) -> Optional[str]:
     import hashlib
     h, left = hashlib.sha256(), size
     f.seek(0)
@@ -244,7 +252,7 @@ def _prefix_sha256(f, size: int) -> Optional[str]:
     return h.hexdigest()
 
 
-def _cached_start(path: str, f) -> Optional[Dict[str, Any]]:
+def _cached_start(path: str, f: BinaryIO) -> Optional[Dict[str, Any]]:
     """The chain state at the end of the bytes the last append left, if those bytes are still the file's first bytes."""
     try:
         with open(path + STATE_SUFFIX, "rb") as g:
@@ -266,7 +274,7 @@ def _cached_start(path: str, f) -> Optional[Dict[str, Any]]:
     return s
 
 
-def _write_state(path: str, f, n: int, lines: int, last: str, first: str) -> None:
+def _write_state(path: str, f: BinaryIO, n: int, lines: int, last: str, first: str) -> None:
     """Best effort: the append is already durable; a state that cannot be written only means a full read next time."""
     try:
         size = os.fstat(f.fileno()).st_size
@@ -308,7 +316,8 @@ class Ledger:
             start = _cached_start(self.path, f)
             idx, prev, first, unterminated, lines_before = _tail_state(f, start)
             entry = {"idx": idx, "ts": ts or _now_ts(), "prev_hash": prev, "data": data}
-            entry["self_hash"] = entry_hash(entry)
+            self_hash = entry_hash(entry)
+            entry["self_hash"] = self_hash
             line = canonical_bytes(entry) + b"\n"
             if len(line) - 1 > MAX_LINE_BYTES:   # content without the terminator
                 raise ValueError(f"record would exceed {MAX_LINE_BYTES} bytes on one line: the verifiers refuse it, so it is not written")
@@ -336,7 +345,7 @@ class Ledger:
                     raise OutputNotWritten(f"ledger {self.path}: {e.strerror or e}; nothing was recorded, {left}") from None
                 raise
             _write_state(self.path, f, idx + 1, lines_before + 1,   # an unterminated last line was already counted
-                         entry["self_hash"], first if idx > 0 else entry["self_hash"])
+                         self_hash, first if idx > 0 else self_hash)
             if self._tip_key is not None:
                 from .signing import write_tip
                 from .outputs import TipNotWritten
@@ -348,7 +357,7 @@ class Ledger:
         return entry
 
     # ── read / verify ──────────────────────────────────────────────────────
-    def entries(self, f=None) -> Iterator[Dict[str, Any]]:
+    def entries(self, f: Optional[BinaryIO] = None) -> Iterator[Dict[str, Any]]:
         """The parsed entries of the ledger file, or of `f` (an already-open binary file, e.g. from open_regular())."""
         if f is None:
             if not os.path.exists(self.path):

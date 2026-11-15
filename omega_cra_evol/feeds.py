@@ -11,6 +11,14 @@ positive control (a version with a known CVE) must light up before any "no vulne
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "EUVD_KEV_DUMP", "KEV_POSITIVE_CONTROL", "KEV_URL", "OSV_BATCH", "OSV_BATCH_MAX", "OSV_QUERY", "OSV_VULN",
+    "POSITIVE_CONTROL", "cisa_kev_ids", "euvd_kev_ids", "exploitation_signal", "osv_positive_control",
+    "osv_query_batch",
+]
+
 import json
 import re
 import urllib.request

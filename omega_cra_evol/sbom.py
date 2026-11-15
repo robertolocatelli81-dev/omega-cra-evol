@@ -16,6 +16,18 @@ dependencies only where they are known), declared as such and validated against 
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "CYCLONEDX_COMPONENT_TYPES", "CYCLONEDX_EXPORT_VERSIONS", "ECMA_KEYWORDS", "EcmaPatternUnsupported",
+    "INGESTED_FORMATS", "IRI_REFERENCE", "MAX_SOURCE_BYTES", "PURL_TYPE_TO_OSV", "SBOMComponent", "SBOMRecord",
+    "SCHEMA_TEXT_MAX", "SPDX3_CONTEXT_301", "SPDX_PURPOSE_TO_TYPE", "components_for_osv",
+    "cyclonedx_schema_check", "dedup", "ecma_pattern", "installed_license", "is_iri_reference",
+    "is_spdx_expression", "is_spdx_id", "marker_applies", "pypi_purl", "reingest", "resolved_components",
+    "sbom_from_cyclonedx", "sbom_from_installed", "sbom_from_spdx", "schema_patterns", "source_fingerprint",
+    "spdx_schema_check",
+]
+
 import copy
 import hashlib
 import json
@@ -70,7 +82,7 @@ class SBOMRecord:
     # graph lives in the stored source and is never re-invented)
     edges: List[List[str]] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # deterministic order: the same environment must give the same SBOM bytes whatever the traversal order
         object.__setattr__(self, "components", sorted(dedup(self.components), key=lambda c: (c.name.lower(), c.version, c.purl)))
 
@@ -598,7 +610,7 @@ _ECMA_ESC = {"d": "[0-9]", "D": "[^0-9]", "w": "[A-Za-z0-9_]", "W": "[^A-Za-z0-9
 _ECMA_PATTERNS: Dict[str, Any] = {}
 
 
-def ecma_pattern(p: str):
+def ecma_pattern(p: str) -> "re.Pattern[str]":
     """the compiled Python pattern with the meaning of the ECMA-262 pattern `p` ("u" flag, no other flag); a pattern
     ECMA-262 refuses with "u", or a construct not translated here, raises EcmaPatternUnsupported"""
     if p in _ECMA_PATTERNS:

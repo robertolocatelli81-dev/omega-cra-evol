@@ -8,8 +8,15 @@ until 0.5.1), written in a loop that checks the count, fsynced and closed, and r
 complete."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "OutputNotWritten", "TipNotWritten", "commit_tmp", "refuse_directory", "write_file", "write_tmp",
+]
+
 import os
 import secrets
+from typing import Union
 
 
 class OutputNotWritten(OSError):
@@ -28,7 +35,7 @@ def _unlink_quietly(path: str) -> None:
         pass
 
 
-def write_tmp(path: str, text) -> str:
+def write_tmp(path: str, text: Union[str, bytes]) -> str:
     """write `text` (str as UTF-8, or bytes) to a new temporary file next to `path` and return its name; on failure remove it and raise
     OutputNotWritten. The name is `<path>.<16 random hex>.tmp`, created with O_CREAT|O_EXCL (never an existing file, a
     symlink or a FIFO); the mode is 0666 less the umask, as `open(path, "w")` gives."""

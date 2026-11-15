@@ -7,6 +7,15 @@ in an HSM/KMS (out of scope here) and pin the public key out of band. Requires t
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "HEX128_RE", "HEX64_RE", "INSTANT_RE", "SIDECAR_KEYS", "SIG_KIND", "TIP_KIND", "WEAK_ED25519_KEYS",
+    "is_instant", "keygen", "load_key", "pack_digest", "sidecar_fields_ok", "sidecar_path",
+    "sidecar_unknown_fields", "sign_pack", "signed_payload", "tip_payload", "verify_pack_signature",
+    "verify_tip", "weak_ed25519_key", "write_tip",
+]
+
 import base64
 import hashlib
 import json

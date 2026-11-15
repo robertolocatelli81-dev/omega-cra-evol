@@ -9,6 +9,13 @@ self-asserted seal is NOT an objective time anchor (RFC 3161 / OpenTimestamps ar
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "ATTACHMENT_FORMATS", "EvidenceLocker", "HONEST_SCOPE", "HONEST_SCOPE_MARK", "LEGAL_BASIS", "PACK_KIND",
+    "RECORD_KINDS", "RETENTION_YEARS", "SOURCES_SUFFIX", "source_file", "sources_dir",
+]
+
 import hashlib
 import json
 import os

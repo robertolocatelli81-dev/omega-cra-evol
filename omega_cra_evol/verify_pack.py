@@ -5,6 +5,14 @@ A pack alone proves internal consistency; the ledger next to it proves the pack 
 signature proves which key produced it; a trust store proves that key is one you chose to trust."""
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "ENTRY_KEYS", "EXTERNAL_FORMATS", "FAIL_CLOSED_REASONS", "FAULT_ENV", "HEX64", "PACK_KEYS", "POLICY_UNMET",
+    "REASONS", "REFUSAL_CLASSES", "STATES", "STATES_VOCABULARY", "SUBJECTS", "ledger_file_name_ok",
+    "verify_pack",
+]
+
 import hashlib
 import json
 import os

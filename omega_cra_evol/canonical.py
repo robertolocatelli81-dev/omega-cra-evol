@@ -14,6 +14,13 @@ tests/test_canonical_vs_jcs_20261113.py. The profile is not changed: it would ch
 """
 from __future__ import annotations
 
+# The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
+# release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
+__all__ = [
+    "MAX_DEPTH", "MAX_SAFE_INT", "canonical_bytes", "deep_recursion", "floatfree", "nesting_depth",
+    "sha256_hex", "sha3_hex",
+]
+
 import hashlib
 import json
 from typing import Any
@@ -75,17 +82,16 @@ class deep_recursion:
     Raise the limit while (de)serialising a profile-bounded document, restore it after."""
     NEEDED = 8000
 
-    def __enter__(self):
+    def __enter__(self) -> "deep_recursion":
         import sys
         self.old = sys.getrecursionlimit()
         if self.old < self.NEEDED:
             sys.setrecursionlimit(self.NEEDED)
         return self
 
-    def __exit__(self, *a):
+    def __exit__(self, *a: object) -> None:   # None: never suppresses the exception (as False did)
         import sys
         sys.setrecursionlimit(self.old)
-        return False
 
 
 def nesting_depth(text: str) -> int:
