@@ -1,6 +1,104 @@
 # Changelog
 
-## Unreleased — a CycloneDX document is checked against the official schema of its version
+## Unreleased — CycloneDX and SPDX documents are checked against the official schema of their version
+
+### SPDX (rules written before the code, 15/11/2026)
+
+`cra sbom --from-spdx` (`sbom_from_spdx`) validates the document against the official JSON schema of the version it
+declares, shipped in the wheel (`omega_cra_evol/data/spdx/`, SHA-256 and sources in `SOURCES.txt`):
+
+| the document declares | schema | source |
+|---|---|---|
+| `"spdxVersion": "SPDX-2.2"` | `spdx-schema-v2.2.2.json` (draft-07) | spdx/spdx-spec tag `v2.2.2` (`a05c12a`), `schemas/spdx-schema.json`, CC-BY-3.0 |
+| `"spdxVersion": "SPDX-2.3"` | `spdx-schema-v2.3.json` (draft-07) | spdx/spdx-spec tag `v2.3` (`aadf3b0`), `schemas/spdx-schema.json`, CC-BY-3.0 |
+| `@context` `https://spdx.org/rdf/3.0.1/spdx-context.jsonld` (the string, or an array holding it) | `spdx-json-schema-3.0.1.json` (2020-12) | `https://spdx.org/schema/3.0.1/spdx-json-schema.json`, the URL the SPDX 3.0.1 specification names (Serializations, "JSON-LD validation"), fetched 15/11/2026 (served with `Last-Modified: Fri, 21 Nov 2025 22:44:05 GMT`); Community-Spec-1.0 |
+
+The schemas of the released versions are used: the later tag `v2.3.1` of spdx/spdx-spec (no release; draft 2019-09,
+`documentNamespace` required, a date pattern without fractions) is not, a document says `SPDX-2.3`; the copy of the
+3.0.1 schema on `spdx.github.io/spdx-spec/v3.0.1/rdf/schema.json` is not either: it is a later regeneration that the
+SPDX maintainers found to fail their own validation (spdx/spdx-spec#1318).
+
+1. A document that fails the schema is refused with the reason (`SPDX not conformant to <schema> at <path>:
+   <message>`), nothing recorded. With `--allow-nonconformant` it is recorded with `source.schema_check` = `not
+   conformant to <schema> at <path>: <message>`, and `sbom_floor_met` is false. The same rule as CycloneDX rule 1 below.
+2. A version without a schema here is refused with the reason (`SPDX not checked: no official schema here for
+   spdxVersion 'SPDX-2.1' (SPDX-2.2, SPDX-2.3)`; for SPDX 3, `… for @context …`), nothing recorded: `SPDX-2.1`,
+   `SPDX-2.2.1`, a missing or non-string `spdxVersion`, an SPDX 3 document whose context is 3.0.0, 3.1 or another.
+   With `--allow-nonconformant` it is recorded with `source.schema_check` = `not checked: no official schema here for
+   …`, and `sbom_floor_met` is false.
+3. Without the extra `[schema]` (no jsonschema, or one without a JSON Schema 2020-12 validator) the document is recorded with `source.schema_check` = `not checked: <reason>`, and `sbom_floor_met` is false, as
+   CycloneDX rule 2. The SPDX schemas use no `format` keyword (counted on the three files), so no format checker is
+   needed for them.
+4. A conformant document is recorded with `source.schema_check` = `conformant to <schema>`; the floor is then decided
+   as before (at least one resolved component). `record_sbom` re-derives `schema_check` from the stored bytes, so a
+   forged value is refused. `--allow-nonconformant` now applies to `--from-cyclonedx` and `--from-spdx`; with
+   `--installed` it is a usage error.
+5. **SPDX 3 `@context`.** JSON-LD 1.1 (W3C Recommendation, §9.16 Keywords) admits for `@context` "null, an IRI
+   reference, a context definition, or an array composed of any of these". The SPDX 3.0.1 specification (Serializations,
+   "JSON-LD context file" and "JSON-LD validation") says that every SPDX document in JSON-LD "must include a reference
+   to the SPDX global context file at the top level", shows the construct `"@context":
+   "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"`, says "Additional namespace mappings may be defined within a
+   separate object within the context", and requires "Structural validation: The JSON-LD document must structurally
+   validate against the SPDX JSON Schema"; that schema reads `"@context": {"const":
+   "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"}`. Our reading: the schema is normative for 3.0.1, so an array
+   `@context` (even `["https://spdx.org/rdf/3.0.1/spdx-context.jsonld"]`) is not conformant to 3.0.1 and is refused by
+   rule 1, with `--allow-nonconformant` as the way to record it. Divergence, dated: spdx/spdx-spec#1312 (opened
+   18/11/2025) and spdx/spdx-3-model#1476 (opened 15/10/2026) ask that arrays be allowed, an SPDX maintainer agreed in
+   #1476 on 15/10/2026, and the schema published for 3.1 (`spdx.github.io/spdx-spec/v3.1/rdf/schema.json`, read
+   15/11/2026) accepts an array that contains the 3.1 context. A 3.1 document has no schema here today (rule 2); when
+   3.1 is released its schema becomes the rule for 3.1 documents, not for 3.0.1 ones.
+
+Why: measured on 15/11/2026 on the SPDX JSON files of other projects downloaded for the test round of 14/11 (their
+own examples, fixtures and expected outputs): of 138 SPDX 2.2 / 2.3 documents, 34 (32 distinct) fail the schema of their
+version, among them documents their authors call invalid (spdx/tools-java `BadJSON.spdx.json`, spdx/tools-python
+`tests/spdx/data/invalid/…`, sbomqs `spdx-no-timestamp`, `spdx-no-authors`), and 4 more declare a version without a
+schema (`SPDX-2.1`, `SPDX-2.2.1` of tools-java `SPDXWrongVersion`, `2`, none); the code before this change recorded
+the conformant and the non-conformant alike, floor met when a component resolved. Of 126 SPDX 3 JSON-LD documents,
+47 pass the 3.0.1 schema; 62 have an array `@context` (60 of sbomqs, 2 of spdx-3-model), and 61 of those fail the
+schema also when the array is replaced by the string; 15 declare the 3.0.0 context; 2 fail by structure. The 34 SPDX
+2.3 JSON documents published with the releases of 16 projects (argo-cd, external-secrets, flux, goreleaser, k6, loki,
+guac, jaeger, kubescape, nginx-gateway-fabric, ocm, opentelemetry-collector-releases, vexctl, cosign, fulcio, rekor)
+are conformant, 34 of 34.
+
+### `iri-reference` in linear time (15/11/2026)
+
+The `iri-reference` format of the CycloneDX schemas is checked by a regular expression written from the ABNF of RFC
+3987 §2.2 (with the rules it takes from RFC 3986), matched whole (`fullmatch`, so a trailing newline is not accepted),
+instead of the Earley parser of `rfc3987-syntax` that jsonschema[format-nongpl] calls. The other four formats stay
+jsonschema's, and the condition for `not checked` (CycloneDX rule 2) is unchanged. The regular expression has no nested
+unbounded repetition over overlapping characters, so its time is linear in the length of the string.
+
+Why: protobom's `juice-shop-11.1.2.cdx.json` (742 KB, 840 components, 2,476 URLs) took 220 s through `cra sbom` on
+15/11/2026 (load 16), against 8 s for cyclonedx-cli 0.33.1; about 0.1 s per URL in `rfc3987_syntax`. The answer is
+the same on every string the schemas check as `iri-reference` in the 359 suite files, the 1,125 real files of 14/11 and
+the candidates (8,869 distinct strings, 0 differences). It differs where `rfc3987-syntax` 1.1.0 departs from the RFC:
+it refuses IPv6 literals with fewer than seven groups before `::` (`http://[::1]/`), characters of the supplementary
+planes in `ucschar` and `iprivate`, and an upper-case `V` in `IPvFuture` (ABNF strings are case-insensitive, RFC 2234
+§2.3); these are now accepted, as the RFC says.
+
+### `cra sbom`: a refused document exits 2 with one line (15/11/2026)
+
+A document `cra sbom` refuses (malformed, not conformant, a version without a schema, not JSON) exits **2** ("unusable
+input", the code `cra verify` gives) with one line on stderr, `cra sbom: refused, nothing recorded: <reason>`, and
+nothing is written: no ledger line, no stored copy. Before, it exited 1 with a Python traceback, the code of "recorded,
+SBOM floor not met", so a script could not tell "nothing recorded" from "recorded". A document that is not JSON is
+named when it is recognised: `SPDX tag-value is not supported: give the SPDX JSON document`, `CycloneDX XML is not
+supported: give the CycloneDX JSON document`, `SPDX RDF/XML is not supported: give the SPDX JSON document`, otherwise
+`not JSON`. Recorded with the floor not met still exits 1; the other subcommands are unchanged.
+
+### `cra verify-attestation`: `predicate_type` is never a default (15/11/2026)
+
+The receipt's `predicate_type` is the `predicateType` the statement declares, once its payload has been read after a
+trusted signature (truncated to 200 characters; any string, also one that is not an `art14-filing` TypeURI, which is
+then refused with the reason `predicate_type`, as before). Before that point (an envelope not trusted, not decodable,
+or another `payloadType`), and when the statement has no string `predicateType`, it is `"not_evaluated"`. Before, the
+receipt wrote the v0.1 TypeURI in those cases (art14-filing v0.2 §5 said so, to keep v0.1 receipts byte for byte):
+measured on 15/11/2026 on 270 envelopes of other tools (SLSA provenance v0.2 and v1, cosign, CycloneDX, VSA), each
+receipt named `…/art14-filing/v0.1` although 156 of the envelopes declare another type. Spec art14-filing v0.2 §5 is
+amended (the statement format and the reasons are unchanged); the receipts of 0.8.0 on the v0.1 vectors stay the
+same in every other key.
+
+### CycloneDX (rule written before the code, 14/11/2026)
 
 **Rule (written before the code, 14/11/2026).** `cra sbom --from-cyclonedx` (`sbom_from_cyclonedx`) validates the
 document against the official JSON schema of its declared
@@ -25,7 +123,8 @@ recursion allowance of the parser, so every document the parser accepts (nesting
    evidences the Annex I floor.
 3. A conformant document is recorded with `source.schema_check` = `conformant to bom-<v>.schema.json`; the floor is
    then decided as before (at least one resolved component).
-4. SPDX documents and the installed floor are not affected; entries recorded before this change are verified as before.
+4. The installed floor is not affected (SPDX documents: see the SPDX rules above, 15/11/2026); entries recorded before
+   this change are verified as before.
 
 Why: on 14/11/2026, 0.10.0 recorded 135 of the 141 invalid files (139 `invalid-*`, 2 `skip_invalid-*`) of the
 official CycloneDX test suite (1.2 … 1.7, 359 JSON files at `6470e34`) and 103 of them as floor met; only the 6 with

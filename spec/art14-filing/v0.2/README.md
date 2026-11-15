@@ -156,13 +156,15 @@ keys:
 checks)` (the drop file was given but refused before rule 5, so the notice's identifiers were not read). `notice` lists the identifiers the notice
 carries in the order of §2.1; a notice value that is not in its scheme's form is listed as it is.
 
-`predicate_type` in the receipt is the TypeURI of the statement once its payload has been read (a trusted signature)
-and found to be one of the two defined here. Before that point (an envelope not trusted or not decodable), and for a
-statement whose TypeURI is neither (refused with `predicate_type`), the receipt keeps the v0.1 TypeURI, as the verifier
-of v0.1 wrote it, so that every v0.1 receipt stays byte for byte the same.
+`predicate_type` in the receipt is the `predicateType` the statement declares, once its payload has been read (a
+trusted signature): one of the two TypeURIs defined here, or any other string (up to its first 200 characters), which
+is then refused with `predicate_type`. Before that point (an envelope not trusted, not decodable, or with another
+`payloadType`) and for a statement without a string `predicateType`, it is `"not_evaluated"`: the receipt never
+names a type the verifier has not read from a trusted statement. (Amended 15/11/2026, see §9: until then these
+receipts kept the v0.1 TypeURI, which a reader took for the type of an envelope that declares another one.)
 
 A v0.1 statement gets neither key: its receipt is the one the v0.1 verifier gives (measured byte for byte on the
-v0.1 vectors, CHANGELOG 0.9.0).
+v0.1 vectors, CHANGELOG 0.9.0), but `predicate_type` where the statement was not read (above, since 15/11/2026).
 
 ## 6. Producing (`cra attest`)
 
@@ -216,4 +218,8 @@ are real public records, chosen for their form, and say nothing about the synthe
   `predicate_type` of a statement with an undefined TypeURI written down as implemented; "an empty list" added to the
   values that are not present (§3); the duplicate and order checks of §2.1 are one rule in the code (the order of
   the distinct schemes), with the same reason code; the example issuers are fictitious.
+- 15/11/2026 (receipt only; the statement format, the rules and the reason codes are unchanged): §5 `predicate_type`
+  is the declared `predicateType` once read from a trusted statement, otherwise `"not_evaluated"`, never the v0.1
+  TypeURI by default. A receipt of 0.8.0 on the v0.1 vectors keeps every other key; its `predicate_type` is
+  `"not_evaluated"` where the statement was not read.
 - 13/11/2026 (omega-cra-evol 0.10.0, no change of rule): The project is renamed from cra-evidence to omega-cra-evol in 0.10.0 (13/11/2026); this TypeURI, the value `"cra-evidence"` of `source.tool` and `declaredBy` for a notice built by the tool, and the vectors with their seed strings are identifiers and stay as they are.
