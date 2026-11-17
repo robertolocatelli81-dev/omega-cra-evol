@@ -34,9 +34,15 @@
   says, paragraph by paragraph of Art. 14, what this tool supports and what it does not (it does not determine the
   coordinating CSIRT of 14(7), the enterprise size of Art. 64(10) or a product's class). No verdict changes.
 - **NIST IR 8547 is cited as final** (October 2026, §4.1.1 Table 2) in `longterm.py` and `spec/LEGAL_BASIS.md`, no longer
-  as the initial public draft. Its dates are unchanged ("Deprecated after 2030", "Disallowed after 2035"). The default
-  policy `AlgorithmPolicy.nist_ir_8547()` treats Ed25519 as broken from 2035-01-01, unchanged since 0.1.0; the text,
-  which equates "after 2030" with January 1, 2031, puts it a year later, and the comment now says so.
+  as the initial public draft. Its dates are unchanged ("Deprecated after 2030", "Disallowed after 2035").
+- **The NIST IR 8547 instants follow the final text** (changes verdicts). §4.1.1 equates "after 2030" with January 1,
+  2031, so `NIST_IR_8547_DEPRECATED_AFTER` is now 2031-01-01T00:00:00Z and `NIST_IR_8547_DISALLOWED_AFTER`
+  2036-01-01T00:00:00Z; from 0.1.0 to 0.12.0 they were 2030-01-01 and 2035-01-01, one year earlier. The default policy
+  `AlgorithmPolicy.nist_ir_8547()` uses the second: an Ed25519 outer seal checked with `now` in 2035, or a renewal made
+  in 2035 over an Ed25519 record, was refused and is now accepted; from 2036-01-01 it is refused as before. The first
+  constant is exported and decides no verdict here. `tests/test_nist_ir_8547_dates_20261117.py` checks each boundary one
+  day before, at the instant and one day after, on the policy, `verify` and `renewal_due`; positive control: its 6
+  tests fail on the constants of 0.12.0.
 - **SIGNING.md**: which keys sign the releases and how to check a release (the evidence pack with `cra verify`, the
   attestations, `SHA256SUMS`, the SSH signatures). Each statement was read on 17/11/2026 against the 19 releases.
   `THIRD_PARTY_NOTICES.md` now names the ENISA page kept as a fixture, the quoted EU acts and NIST IR 8547, the sbomify

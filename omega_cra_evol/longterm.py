@@ -63,11 +63,11 @@ def _ed_gen():
 
 # NIST IR 8547 (final, October 2026, https://doi.org/10.6028/NIST.IR.8547, §4.1.1 Table 2): quantum-vulnerable digital
 # signatures (EdDSA of at least 128 bits, Ed25519 included) "Deprecated after 2030", "Disallowed after 2035". The same
-# section equates "after 2030" with January 1, 2031, so the text's instants are 2031-01-01 and 2036-01-01; these
-# constants are one year earlier (unchanged since 0.1.0; a stricter default, spec/LEGAL_BASIS.md re-check of 17/11/2026).
-# Used as the DEFAULT policy so that "always valid" is never the silent default.
-NIST_IR_8547_DISALLOWED_AFTER = 2051222400.0   # 2035-01-01T00:00:00Z
-NIST_IR_8547_DEPRECATED_AFTER = 1893456000.0   # 2030-01-01T00:00:00Z
+# section equates "after 2030" with January 1, 2031: the instants are 2031-01-01 and 2036-01-01 (0.1.0 to 0.12.0 used
+# 2030-01-01 and 2035-01-01, one year earlier; aligned with the text in 0.13.0, spec/LEGAL_BASIS.md re-check of
+# 17/11/2026). Used as the DEFAULT policy so that "always valid" is never the silent default.
+NIST_IR_8547_DISALLOWED_AFTER = 2082758400.0   # 2036-01-01T00:00:00Z
+NIST_IR_8547_DEPRECATED_AFTER = 1924992000.0   # 2031-01-01T00:00:00Z
 
 
 def _ed_sign(sk, msg: bytes) -> str:
