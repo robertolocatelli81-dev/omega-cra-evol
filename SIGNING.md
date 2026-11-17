@@ -60,7 +60,7 @@ there.
   of every key ever used is kept in this file and never deleted.
 - If a key is suspected compromised, it stops being used immediately, and an advisory is published as soon as
   possible, giving the cut-off date and the SHA-256 of the releases that remain trustworthy.
-- No SLA or fixed deadline is promised for these steps.
+- Apart from withdrawing a suspected key, no SLA or fixed deadline is promised for these steps.
 
 ## 6. Post-quantum transition
 
