@@ -48,9 +48,10 @@
   `THIRD_PARTY_NOTICES.md` now names the ENISA page kept as a fixture, the quoted EU acts and NIST IR 8547, the sbomify
   responses (sbomify is Apache-2.0 with the Commons Clause condition; the fixtures are its output on synthetic data)
   and the port from cryptovalid-opencore.
-- Full suite as the CI runs it: 607 tests on Python 3.9 and on 3.13 with the `sign` and `schema` extras and the
+- Full suite as the CI runs it: 613 tests on Python 3.9 and on 3.13 with the `sign` and `schema` extras and the
   cryptovalid 0.15.0 wheel, OK, 2 skipped (a live feed and an install-only check), every test class run; without any
-  optional dependency, 607 tests, OK, 127 skipped (one of them new: the name test builds its names with `cryptography`).
+  optional dependency, 613 tests, OK, 130 skipped (four of them new: the name test builds its names with `cryptography`,
+  and the three NIST boundary tests through `verify` need Ed25519).
 
 ## 0.12.0 — 2026-11-16 — supply chain of the release measurable by third parties
 
