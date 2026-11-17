@@ -218,7 +218,7 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
 - **Time:** the ledger orders records; it is an objective time anchor only with an attached RFC 3161 / OpenTimestamps
   token. An RFC 3161 token of a seal must stamp that seal record (`cra seal --print-imprint`; the digest, the chain
   before it and the record's own fields, `spec/TIME_ANCHOR.md`) and gives the record its time; it is verified —
-  signature, binding, time, TSA — only against a TSA certificate you pin (`cra seal --tsa-cert`, or
+  signature, binding, time, TSA, with the signer named either way RFC 5652 allows — only against a TSA certificate you pin (`cra seal --tsa-cert`, or
   `omega_cra_evol.time_anchor.make_timestamp_trust_fn`); without a pin `temporal_trust` stays ASSUMED. Revocation of
   the TSA certificate is not checked. OpenTimestamps tokens are stored after a shape check and not verified.
 - **Verifiers:** the JavaScript, Go and Rust verifiers and cryptovalid's are by the same author as this tool; they are
