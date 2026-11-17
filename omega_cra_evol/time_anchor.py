@@ -6,7 +6,9 @@ tests injected `lambda r: True`, under which a record whose "token" is the strin
 function checks, for each record, that its RFC 3161 token stamps that record (the evidence digest, every previous record
 and the record's own fields), that the record's time is the token's genTime, that the token's signature verifies, and
 that the TSA is one the verifier pins (openssl `cms -verify` and `ts -verify`, as cryptovalid-opencore's SPEC §11 does
-for its tokens). Proposed by Athena's review of 15/11/2026 (its prototype p5_timestamp_trust.py), rewritten here.
+for its tokens; for a signer named by subjectKeyIdentifier, which `ts -verify` cannot read, the same checks one by one
+and `openssl verify`, spec §5 step 8 as amended for 0.13.0). Proposed by Athena's review of 15/11/2026 (its prototype
+p5_timestamp_trust.py), rewritten here.
 
 It returns a bool (the interface of longterm.verify); the closed reason of each answer is appended to `fn.log`. An
 openssl that is absent or cannot run is not a refusal: TimeAnchorNotRun is raised and no verdict is given."""
@@ -25,8 +27,8 @@ import tempfile
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from .longterm import ANCHOR, LongTermEvidence
-from .rfc3161_token import (OID_SHA256, OID_SHA3_256, TokenRefused, gen_time_seconds, rfc3161_tstinfo,
-                            timestamp_token_der)
+from .rfc3161_token import (OID_SHA256, OID_SHA3_256, TokenRefused, _children, _oid, gen_time_seconds,
+                            rfc3161_tstinfo, timestamp_token_der)
 
 REASONS = ("record_not_in_chain", "ts_source_not_rfc3161", "digest_only_binding", "anchor_unknown", "unknown_field",
            "token_missing", "token_not_base64", "token_malformed", "imprint_mismatch", "t_not_gen_time",
@@ -124,6 +126,246 @@ def _openssl(args: List[str], timeout: float) -> subprocess.CompletedProcess:
     return p
 
 
+# ── spec/TIME_ANCHOR.md §5 step 8, a signer named by subjectKeyIdentifier (0.13.0). Ported from cryptovalid-opencore's
+# cryptovalid_tsa.py (SPEC §11 step 7, v0.10, same author, AGPL-3.0-or-later), on this package's DER reader.
+_OID_SIGNING_CERTIFICATE = "1.2.840.113549.1.9.16.2.12"      # RFC 2634 §5.4, ESSCertID with SHA-1
+_OID_SIGNING_CERTIFICATE_V2 = "1.2.840.113549.1.9.16.2.47"   # RFC 5035, ESSCertIDv2
+_OID_SUBJECT_ALT_NAME = "2.5.29.17"
+_ESS_HASHES = {"1.3.14.3.2.26": "sha1", "2.16.840.1.101.3.4.2.4": "sha224", "2.16.840.1.101.3.4.2.1": "sha256",
+               "2.16.840.1.101.3.4.2.2": "sha384", "2.16.840.1.101.3.4.2.3": "sha512",
+               "2.16.840.1.101.3.4.2.8": "sha3_256", "2.16.840.1.101.3.4.2.9": "sha3_384",
+               "2.16.840.1.101.3.4.2.10": "sha3_512"}
+
+
+def _items(buf: bytes) -> List[tuple]:
+    """every DER element of `buf`, in order: [(tag, value)] (TokenRefused unless they fill it exactly)"""
+    return [(t, bytes(buf[a:b])) for t, a, b in _children(buf, 0, len(buf))]
+
+
+def _one(buf: bytes, tag: int) -> bytes:
+    it = _items(buf)
+    if len(it) != 1 or it[0][0] != tag:
+        raise TokenRefused(f"expected one element of tag 0x{tag:02x}")
+    return it[0][1]
+
+
+def _tlv(tag: int, v: bytes) -> bytes:
+    n = len(v)
+    ln = bytes([n]) if n < 0x80 else bytes([0x80 | ((n.bit_length() + 7) // 8)]) + n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return bytes([tag]) + ln + v
+
+
+def _oid_of(v: bytes) -> str:
+    """an OBJECT IDENTIFIER's value; an arc not in minimal form (a leading 0x80) is refused"""
+    if any(b == 0x80 and (i == 0 or not v[i - 1] & 0x80) for i, b in enumerate(v)):
+        raise TokenRefused("OBJECT IDENTIFIER arc not in minimal form")
+    b = _tlv(0x06, v)
+    return _oid(b, (0x06, len(b) - len(v), len(b)))
+
+
+# OpenSSL's canonical form of a Name (crypto/x509/x_name.c x509_name_canon, asn1_string_canon): what X509_NAME_cmp
+# compares, and what `openssl ts -verify` uses for the tsa field and the ESS issuerSerial (spec §5 step 8)
+_CANON_STRING = {0x0C: "utf-8", 0x13: "latin-1", 0x14: "latin-1", 0x16: "latin-1", 0x1A: "latin-1",
+                 0x1E: "utf-16-be", 0x1C: "utf-32-be"}
+_C_SPACE = b" \t\n\v\f\r"
+
+
+def _canon_value(tag: int, value: bytes) -> tuple:
+    """a string type: UTF-8, white space trimmed and runs made one space, ASCII letters lowercased; other types as encoded"""
+    enc = _CANON_STRING.get(tag)
+    if enc is None:
+        return ("raw", tag, value)
+    b = value.decode(enc).encode("utf-8")                 # ValueError when not decodable: the names are not equal
+    b = b.strip(_C_SPACE)
+    out, i = bytearray(), 0
+    while i < len(b):
+        c = b[i]
+        if c >= 0x80:
+            out.append(c)
+            i += 1
+        elif c in _C_SPACE:
+            out.append(0x20)
+            while i < len(b) and b[i] in _C_SPACE:
+                i += 1
+        else:
+            out.append(c + 32 if 0x41 <= c <= 0x5A else c)
+            i += 1
+    return ("str", bytes(out))
+
+
+def _name_canon(name_tlv: bytes) -> tuple:
+    """the canonical form of a DER Name (SEQUENCE OF RDN): RDNs in order, each a sorted tuple of (OID, value)"""
+    rdns = []
+    for t, rdn in _items(_one(name_tlv, 0x30)):
+        if t != 0x31:
+            raise TokenRefused("Name: an RDN is not a SET")
+        attrs = []
+        for t2, atv in _items(rdn):
+            a = _items(atv)
+            if t2 != 0x30 or len(a) != 2 or a[0][0] != 0x06:
+                raise TokenRefused("Name: AttributeTypeAndValue")
+            attrs.append((a[0][1], _canon_value(a[1][0], a[1][1])))
+        rdns.append(tuple(sorted(attrs, key=repr)))
+    return tuple(rdns)
+
+
+def _names_equal(a_tlv: bytes, b_tlv: bytes) -> bool:
+    try:
+        return _name_canon(a_tlv) == _name_canon(b_tlv)
+    except (TokenRefused, ValueError):
+        return False
+
+
+def _general_names_equal(a: tuple, b: tuple) -> bool:
+    """GENERAL_NAME_cmp: the same type; a directoryName compared as a Name, any other type by its bytes"""
+    if a[0] != b[0]:
+        return False
+    return _names_equal(a[1], b[1]) if a[0] == 0xA4 else a[1] == b[1]
+
+
+def _signed_data(token_der: bytes) -> List[tuple]:
+    ci = _items(_one(token_der, 0x30))
+    if len(ci) != 2 or ci[1][0] != 0xA0:
+        raise TokenRefused("not a ContentInfo with [0] content")
+    return _items(_one(ci[1][1], 0x30))
+
+
+def _signer_infos(token_der: bytes) -> List[tuple]:
+    """the SignerInfos of the token's SignedData (signerInfos is its last element, a SET)"""
+    sd = _signed_data(token_der)
+    if sd[-1][0] != 0x31:
+        raise TokenRefused("SignedData: signerInfos is not a SET")
+    return _items(sd[-1][1])
+
+
+def _signer_named_by_key_id(token_der: bytes) -> bool:
+    """spec §5 step 8: the SignerInfo's sid is [0] subjectKeyIdentifier (RFC 5652 §5.3), not issuerAndSerialNumber"""
+    try:
+        sis = _signer_infos(token_der)
+        return any(_items(v)[1][0] == 0x80 for t, v in sis if t == 0x30)
+    except (TokenRefused, IndexError):
+        return False
+
+
+def _token_certificates(token_der: bytes) -> List[bytes]:
+    """the DER of each certificate in the SignedData `[0] certificates` of the token"""
+    try:
+        return [_tlv(t, v) for tag, val in _signed_data(token_der)[3:] if tag == 0xA0 for t, v in _items(val) if t == 0x30]
+    except (TokenRefused, IndexError):
+        return []
+
+
+def _policies_shape(el: tuple) -> bool:
+    """ESS `policies` (RFC 2634 §5.4.1): SEQUENCE OF PolicyInformation, each a SEQUENCE that starts with an OID"""
+    if el[0] != 0x30:
+        return False
+    for t, v in _items(el[1]):
+        pi = _items(v)
+        if t != 0x30 or not pi or pi[0][0] != 0x06:
+            return False
+    return True
+
+
+def _pem(der: bytes) -> bytes:
+    return b"-----BEGIN CERTIFICATE-----\n" + base64.encodebytes(der) + b"-----END CERTIFICATE-----\n"
+
+
+def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int, tmp: str,
+                   timeout: float = 30.0) -> Optional[str]:
+    """spec §5 step 8 for a signer named by subjectKeyIdentifier: None when the token is established under the pinned
+    certificates, else why not. One SignerInfo with signed attributes; (a) ESS signing-certificate attribute(s), (b) the
+    `tsa` field, (c) openssl verify with the timestampsign purpose, the chain to a pinned certificate and the validity
+    at genTime, no system store."""
+    try:
+        sis = _signer_infos(token_der)
+        if len(sis) != 1 or sis[0][0] != 0x30:
+            return f"{len(sis)} SignerInfos (exactly one is evaluated here)"
+        si = _items(sis[0][1])
+        if len(si) < 4 or si[3][0] != 0xA0:
+            return "the SignerInfo has no signed attributes"
+        sd = _signed_data(token_der)
+        eci = _items(sd[2][1])
+        tst = _items(_one(_one(eci[1][1], 0x04), 0x30))
+        cert = _items(_one(signer_der, 0x30))
+        tbs = _items(cert[0][1])
+        k = 1 if tbs[0][0] == 0xA0 else 0
+        serial, issuer, subject = tbs[k][1], _tlv(0x30, tbs[k + 2][1]), _tlv(0x30, tbs[k + 4][1])
+        san: List[bytes] = []
+        for tag, v in tbs[k + 6:]:
+            if tag == 0xA3:
+                for _t, ev in _items(_one(v, 0x30)):
+                    e = _items(ev)
+                    if _oid_of(e[0][1]) == _OID_SUBJECT_ALT_NAME:
+                        san = [_tlv(gt, gv) for gt, gv in _items(_one(e[-1][1], 0x30))]
+        # (a) ESS
+        attrs: Dict[str, List[bytes]] = {}
+        for t, av in _items(si[3][1]):   # Attribute ::= SEQUENCE { attrType OID, attrValues SET }, nothing else
+            a = _items(av)
+            if t != 0x30 or len(a) != 2 or a[0][0] != 0x06 or a[1][0] != 0x31:
+                return "a signed attribute is not {attrType, attrValues SET}"
+            attrs.setdefault(_oid_of(a[0][1]), []).append(a[1][1])
+        found = [o for o in (_OID_SIGNING_CERTIFICATE, _OID_SIGNING_CERTIFICATE_V2) if o in attrs]
+        if not found:
+            return "no signingCertificate or signingCertificateV2 attribute (ESS)"
+        for o in found:
+            vals = attrs[o]
+            if len(vals) != 1 or len(_items(vals[0])) != 1:
+                return f"ESS attribute {o}: not exactly one value"
+            sc = _items(_one(vals[0], 0x30))   # SigningCertificate(V2) ::= SEQUENCE { certs SEQUENCE OF, policies OPTIONAL }
+            if not 1 <= len(sc) <= 2 or sc[0][0] != 0x30 or (len(sc) == 2 and not _policies_shape(sc[1])):
+                return f"ESS attribute {o}: not {{certs, policies?}}"
+            ids = _items(sc[0][1])
+            if len(ids) != 1:
+                return f"ESS attribute {o}: {len(ids)} ESSCertIDs (exactly one is evaluated here)"
+            if ids[0][0] != 0x30:
+                return "ESSCertID: not a SEQUENCE"
+            cid = _items(ids[0][1])
+            alg: Optional[str] = "sha1"
+            if o == _OID_SIGNING_CERTIFICATE_V2:
+                alg = "sha256"
+                if cid and cid[0][0] == 0x30:
+                    ai = _items(cid[0][1])
+                    alg = _ESS_HASHES.get(_oid_of(ai[0][1]))
+                    if alg is None or not (len(ai) == 1 or (len(ai) == 2 and ai[1] == (0x05, b""))):
+                        return "ESSCertIDv2: hash algorithm not known"
+                    cid = cid[1:]
+            if not cid or cid[0][0] != 0x04 or len(cid) > 2 or (len(cid) == 2 and cid[1][0] != 0x30):
+                return "ESSCertID: not {certHash, issuerSerial?}"
+            if cid[0][1] != hashlib.new(alg, signer_der).digest():
+                return "ESS certHash is not the hash of the signer certificate"
+            if len(cid) == 2:
+                iss = _items(cid[1][1])
+                names = _items(_one(_tlv(0x30, iss[0][1]), 0x30)) if iss and iss[0][0] == 0x30 else None
+                if not (len(iss) == 2 and iss[1][0] == 0x02 and names is not None and len(names) == 1
+                        and names[0][0] == 0xA4 and _names_equal(names[0][1], issuer)
+                        and int.from_bytes(iss[1][1], "big", signed=True) == int.from_bytes(serial, "big", signed=True)):
+                    return "ESS issuerSerial does not name the signer certificate's issuer and serial number"
+        # (b) the tsa field
+        tsa = [v for tag, v in tst[5:] if tag == 0xA0]
+        if tsa:   # ts_check_signer_name: the subject (a directoryName), then each name of the subjectAltName
+            gn = _items(tsa[0])
+            if len(gn) != 1 or not (_general_names_equal(gn[0], (0xA4, subject))
+                                    or any(_general_names_equal(gn[0], _items(n)[0]) for n in san)):
+                return "the TSTInfo tsa field names neither the signer's subject nor one of its subjectAltName"
+    except (TokenRefused, IndexError, ValueError) as e:
+        return f"signer certificate or attributes not read: {e}"[:160]
+    # (c) chain, purpose, validity at genTime: the OpenSSL chain building of ts -verify, no system store
+    sp, cp, up = (os.path.join(tmp, n) for n in ("ski_signer.pem", "ski_pinned.pem", "ski_untrusted.pem"))
+    for path, data in ((sp, _pem(signer_der)), (cp, pins_pem),
+                       (up, pins_pem + b"".join(_pem(c) for c in _token_certificates(token_der)))):
+        with open(path, "wb") as f:
+            f.write(data)
+    p = _openssl(["verify", "-purpose", "timestampsign", "-partial_chain", "-attime", str(at), "-CAfile", cp,
+                  "-no-CApath", "-no-CAstore", "-untrusted", up, sp], timeout)
+    err = (p.stderr or b"") + (p.stdout or b"")
+    if p.returncode != 0 and b"nknown option" in err:
+        raise TimeAnchorNotRun("this openssl does not know an option of `verify` (OpenSSL 3.0 or later is needed): "
+                               + err.decode("utf-8", "replace").strip()[-160:])
+    if p.returncode != 0:
+        return (err.decode("utf-8", "replace").strip() or "openssl verify refused the signer certificate")[-200:]
+    return None
+
+
 def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str, bytes]],
                             timeout: float = 30.0) -> Callable[[Dict[str, Any]], bool]:
     """spec/TIME_ANCHOR.md §5: the function `lte.verify(..., timestamp_trust_fn=...)` calls on each record of `lte`.
@@ -177,15 +419,27 @@ def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str
                 f.write(der)
             with open(cp, "wb") as f:
                 f.write(pins)
+            sp = os.path.join(d, "signer.pem")
             p = _openssl(["cms", "-verify", "-noverify", "-inform", "DER", "-in", tp, "-binary", "-certfile", cp,
-                          "-out", os.devnull], timeout)
+                          "-signer", sp, "-out", os.devnull], timeout)
             if p.returncode != 0:
                 return no("signature_invalid", (p.stderr or b"").decode("utf-8", "replace").strip()[-200:])
             at = int(gen_time_seconds(gen))
-            p = _openssl(["ts", "-verify", "-token_in", "-in", tp, "-digest", hashed.hex(), "-CAfile", cp, "-untrusted", cp,
-                          "-partial_chain", "-attime", str(at)], timeout)
-            if p.returncode != 0 or b"Verification: OK" not in (p.stdout or b"").splitlines():
-                return no("not_issued_by_pinned_tsa", (p.stderr or b"").decode("utf-8", "replace").strip()[-200:])
+            if _signer_named_by_key_id(der):   # §5 step 8, subjectKeyIdentifier: openssl ts cannot read this SignerInfo
+                signer = []
+                if os.path.isfile(sp):
+                    with open(sp, "rb") as f:
+                        signer = [_pem_block_der(bl) for bl in f.read().split(b"-----BEGIN CERTIFICATE-----")[1:]]
+                if len(signer) != 1 or not _is_certificate_der(signer[0]):
+                    return no("not_issued_by_pinned_tsa", f"signer certificate not read ({len(signer)} written by openssl)")
+                why = _key_id_anchor(der, signer[0], pins, at, d, timeout)
+                if why is not None:
+                    return no("not_issued_by_pinned_tsa", why)
+            else:
+                p = _openssl(["ts", "-verify", "-token_in", "-in", tp, "-digest", hashed.hex(), "-CAfile", cp,
+                              "-untrusted", cp, "-partial_chain", "-attime", str(at)], timeout)
+                if p.returncode != 0 or b"Verification: OK" not in (p.stdout or b"").splitlines():
+                    return no("not_issued_by_pinned_tsa", (p.stderr or b"").decode("utf-8", "replace").strip()[-200:])
         finally:
             shutil.rmtree(d, ignore_errors=True)
         if rec.get("token_sha3") != hashlib.sha3_256(tok.encode("ascii")).hexdigest():   # NEMESIS 15/11/2026: the
