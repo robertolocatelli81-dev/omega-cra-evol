@@ -1,4 +1,4 @@
-# Legal basis — as read from primary sources on 15/09/2026, re-checked on 20/09/2026, 29/09/2026, 19/10/2026 and 12/11/2026
+# Legal basis — as read from primary sources on 15/09/2026, re-checked on 20/09/2026, 29/09/2026, 19/10/2026, 12/11/2026 and 17/11/2026
 
 Regulation (EU) 2024/2847 (Cyber Resilience Act). Sources consulted on 15/09/2026:
 - European Commission, "Cyber Resilience Act — Reporting obligations": https://digital-strategy.ec.europa.eu/en/policies/cra-reporting
@@ -100,11 +100,75 @@ Re-check of 12/11/2026 (what changed: the glossary, three new rows and the stage
   two later fetches the same evening answered HTTP 429): "The fields displayed and their requirements may differ depending on the notification
   type and reporting stage"; still no API at the initial release. The Art. 14 deadlines are unchanged.
 
+Re-check of 17/11/2026 (what changed: three corrigenda and three Commission acts read; NIST IR 8547 is final; nothing in
+the Art. 14 deadlines). Texts of the Official Journal from the Publications Office
+(`http://publications.europa.eu/resource/celex/<CELEX>`, English XHTML, fetched 2026-11-17 09:43–09:47 UTC; sha256 of
+each file, first 16 hex digits); entry into force from the CELLAR SPARQL field `resource_legal_date_entry-into-force`.
+CELLAR lists, for English titles containing "2024/2847": the Regulation, its corrigenda R(01), R(02) and R(04), and the
+Commission acts 2025/1535, 2025/2392 and 2026/881 (a search by title: an act that does not name the Regulation in its
+title is not found this way).
+- Regulation (EU) 2024/2847, same file as on 19/10/2026 (sha256 `fe0cca4a0caec50e…`): Art. 14 re-read whole; Art. 64(2),
+  64(10) and 67 read for the corrigenda below.
+- **Corrigendum R(01)**, OJ L 2024/90780, 5.12.2024 (`c1bbbc0e2734c7f3…`): the title reads "(EU) 2019/1020" for "(EU)
+  No 2019/1020". No effect on this tool.
+- **Corrigendum R(02)**, OJ L 2025/90555, 2.7.2025, ELI http://data.europa.eu/eli/reg/2024/2847/corrigendum/2025-07-02/oj
+  (`8fb5f7dad72e6d92…`): Art. 64(10) reads "By way of derogation from paragraphs **2** to 9" for "3 to 9". Art. 64(2) is
+  the paragraph that fines non-compliance with Articles 13 and 14, so the derogation now reaches Art. 14: the
+  administrative fines "shall not apply to … manufacturers that qualify as microenterprises or small enterprises with
+  regard to any failure to meet the deadline referred to in Article 14(2), point (a), or Article 14(4), point (a)" (the
+  24 h early warnings). The obligation and its deadline stay; the 72 h notifications and the final reports are not in
+  the derogation. This tool computes every deadline the same way for every manufacturer and does not determine the size
+  of an enterprise: it never says a deadline does not apply.
+- **Corrigendum R(04)**, OJ L 2025/90828, 17.10.2025, ELI http://data.europa.eu/eli/reg/2024/2847/corrigendum/2025-10-17/oj
+  (`56458cbf1c09f57a…`): in Art. 67 the point added to Annex I of Directive (EU) 2020/1828 is numbered 72, not 69. No
+  effect on this tool.
+- **Commission Implementing Regulation (EU) 2025/2392** of 28 November 2025 on the technical description of the
+  categories of important and critical products with digital elements, OJ L 1.12.2025 (`8dd48c7990527289…`), in force
+  from 21 December 2025: the technical descriptions of the categories of Annex III (classes I and II) and Annex IV. This
+  tool records the class a manufacturer declares (SRP glossary row 9, `product_class`, Class I or Class II; the sbomify
+  product type Default, Important or Critical); it does not classify a product against these descriptions.
+- **Commission Delegated Regulation (EU) 2026/881** of 11 December 2025 (Art. 14(9)), OJ L 20.4.2026
+  (`87e373481fb6df59…`), in force from 10 May 2026: when the CSIRT that first receives a notification may delay its
+  dissemination to the other CSIRTs (Arts. 3–5). It addresses the CSIRTs, not the manufacturer's deadlines. Art. 3(a) and
+  recital 2 concern what the manufacturer indicates: that an effective mitigation is expected within 72 hours (glossary
+  row 13, `mitigating_measure_expected_shortly`) and the Art. 16(2) third-subparagraph circumstances (rows v28/v29,
+  `particular_exceptional_circumstances`, `pec_delay_reason`), which restrict ENISA's access only for the 72 h
+  vulnerability notification. Those fields exist in this tool unchanged; the CSIRT's decision to delay is not recorded.
+- **Commission Delegated Regulation (EU) 2025/1535** of 29 July 2025, OJ L 29.10.2025 (`28c824d7b817a83a…`), in force from
+  18 November 2025: the Regulation does not apply to products with digital elements within Regulation (EU) No 168/2013
+  (two- or three-wheel vehicles and quadricycles), except L1e vehicles designed to pedal. This tool does not decide scope.
+- No implementing act under Art. 14(10) (format and procedures of the notifications) was found: the field vocabulary
+  followed is ENISA's SRP glossary (above), not an implementing act.
+- Digital Omnibus 2025/0360(COD), OEIL page fetched 2026-11-17T09:47Z (`87f97cc0277e13f5…`): "Awaiting committee
+  decision"; still a proposal, and Regulation (EU) 2024/2847 is not among the acts the page names.
+- **NIST IR 8547, *Transition to Post-Quantum Cryptography Standards*, final, October 2026** (CSRC document history:
+  "11/12/24: IR 8547 (Draft)", "10/27/26: IR 8547 (Final)"; https://doi.org/10.6028/NIST.IR.8547, PDF sha256
+  `3049cdfdd7c20417…`, fetched 2026-11-17): §4.1.1 Table 2, EdDSA with at least 128 bits of classical security strength
+  (Ed25519 included), ECDSA and RSA: "Deprecated after 2030", "Disallowed after 2035". The same section says that SP
+  800-57 had projected disallowing 112-bit public-key schemes "on January 1, 2031" and that NIST "will instead deprecate
+  … after 2030": "after 2030" is from 1 January 2031, and "after 2035" from 1 January 2036. The default policy of
+  `LongTermEvidence.verify` (`AlgorithmPolicy.nist_ir_8547()`) treats Ed25519 as broken from 2035-01-01T00:00:00Z, one year
+  earlier than that reading; it is unchanged in 0.13.0 (a stricter default; a caller passes its own `AlgorithmPolicy`
+  for another date).
+
+Article 14, paragraph by paragraph, and what this tool supports (17/11/2026):
+
+| Art. 14 | Supported | Not supported |
+|---|---|---|
+| (1), (3): notify an actively exploited vulnerability / a severe incident through the single reporting platform | when the obligation arises (`art14_obligation`, from 11/09/2026, both time-zone readings); the payload of each stage in the glossary vocabulary (`SRPNotice`) | submission (the SRP has no API; nothing is sent); whether a vulnerability is actively exploited or an incident severe (14(5)) is the manufacturer's determination |
+| (2)(a), (4)(a): early warning within 24 h, Member States where the product is available; for an incident, whether unlawful or malicious acts are suspected | the 24 h deadline from the recorded awareness; fields 5 (`member_states_available`) and i31 (`suspected_malicious`), required at that stage | the micro/small-enterprise derogation from the fines (Art. 64(10) as corrected): not determined |
+| (2)(b), (4)(b): notification within 72 h, with how sensitive the manufacturer considers the information | the 72 h deadline; field 15 (`sensitivity_justification`), rows v28/v29 | — |
+| (2)(c): final report no later than 14 days after a corrective or mitigating measure is available; (4)(c): within one month after the incident notification | the deadline from the recorded instants (undetermined until they are recorded) | — |
+| (6): intermediate report when the CSIRT asks | stage `intermediate`, recorded and attested | no deadline (the Regulation gives none); completeness not evaluated |
+| (7): which CSIRT (main establishment, then the order (a)–(d)) | — | the coordinating CSIRT is not determined by this tool (field 5 lists the Member States where the product is available, not which CSIRT coordinates) |
+| (8): inform the impacted users, where appropriate in a structured, machine-readable format | the instant (`user_information`, stage `users_informed`); a CSAF 2.0, OpenVEX or CycloneDX VEX document can be kept as an attachment of the locker | no deadline (the Regulation gives none); no advisory is written by this tool |
+| (9), (10): delegated act on delaying dissemination (2026/881); implementing acts on format and procedures | 2026/881: see above | no Art. 14(10) implementing act exists to follow (CELLAR, 17/11/2026) |
+
 | Obligation | What this tool does | Reference |
 |---|---|---|
 | Actively exploited vulnerabilities: early warning within 24 h of awareness, notification within 72 h, final report no later than 14 days after a corrective or mitigating measure is available (Art. 14(2)(a)-(c)); severe incidents: 24 h, 72 h, final report "within one month after the submission of the incident notification" (Art. 14(4)(a)-(c)); reporting once through the Single Reporting Platform to the CSIRT designated as coordinator and ENISA | `VulnerabilityRecord.deadlines()/overdue()` with the clock anchored exactly as above (the incident final report is anchored to the recorded submission instant, calendar month; undetermined until recorded); `SRPNotice` builds the payload per stage in the glossary vocabulary and lists what is still missing; nothing is submitted (human portal) | Art. 14, Art. 16; applying from 11 September 2026 (Art. 71) — text re-read on EUR-Lex (OJ L, 2024/2847) on 15/09/2026 |
 | Software bill of materials in a commonly used, machine-readable format covering at least the top-level dependencies, in the technical documentation | `SBOMRecord` (CycloneDX 1.6/1.7 subset; the generator's document is stored byte-exact since 0.3.0), from the installed environment (floor) or by ingesting a full generator's CycloneDX or SPDX document (stored byte-exact); an empty SBOM is recorded as not meeting the floor | Annex I Part II(1); full application 11 December 2027 |
-| Technical documentation and EU declaration of conformity kept at the disposal of the market surveillance authorities for at least 10 years after the product is placed on the market or for the support period, whichever is longer | evidence pack (records the support period end when given, so the retention horizon is the right one) + hash-chained ledger + crypto-agile long-term seal, renewable before an algorithm is retired (NIST IR 8547 initial public draft, https://csrc.nist.gov/pubs/ir/8547/ipd: quantum-vulnerable signatures deprecated after 2030, disallowed after 2035 — used as the verifier's default policy) | Art. 13(13) (retention), Art. 31 (technical documentation content) |
+| Technical documentation and EU declaration of conformity kept at the disposal of the market surveillance authorities for at least 10 years after the product is placed on the market or for the support period, whichever is longer | evidence pack (records the support period end when given, so the retention horizon is the right one) + hash-chained ledger + crypto-agile long-term seal, renewable before an algorithm is retired (NIST IR 8547, final, October 2026, https://doi.org/10.6028/NIST.IR.8547, §4.1.1 Table 2: quantum-vulnerable signatures deprecated after 2030, disallowed after 2035 — the verifier's default policy treats Ed25519 as broken from 2035-01-01, see the re-check of 17/11/2026) | Art. 13(13) (retention), Art. 31 (technical documentation content) |
 | Art. 14 applies from 11 September 2026; the obligation arises on awareness of ACTIVE EXPLOITATION (not of the vulnerability) | `art14_obligation()` / `cra obligations --exploitation-aware [--vulnerability-aware]` / `VulnerabilityRecord.overdue()["art14_obligation"]`: obligation, no obligation, or depends on the time-zone reading (both answers) | Art. 14(1)/(3), Art. 71(2); guidance C(2026) 5252 §217 (non-binding); Reg. 1182/71 Art. 4(2) |
 | Open-source software stewards: reporting obligations from 11 December 2027 (Art. 14(1); 14(3) and (8) for severe incidents) | same tooling; the stream/stage model is identical, but `cra vuln` computes the manufacturer's start (11/09/2026): for a steward, before 11/12/2027 its `overdue` flags do not apply; `reporting_in_force("open_source_steward", …)` / `cra obligations --role open_source_steward` says from when, under both readings, with the Art. 24(3) scope condition recorded and never checked | Art. 24(3), Art. 71(2) |
 | Products placed on the market before 11 December 2027: Art. 14 applies to them; the requirements only after a substantial modification from that date | `legacy_product_scope()` / `cra obligations --placed-on-market [--substantially-modified]`; scope (Art. 2) and "substantial" are not decided | Art. 69(2)-(3) |

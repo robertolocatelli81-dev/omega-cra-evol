@@ -5,9 +5,9 @@
 Each record signs the evidence digest + the WHOLE previous chain (+ an optional stronger re-hash), so a renewal
 cannot be grafted, reordered or applied to a different digest without breaking every later signature. The
 algorithm registry starts with Ed25519 (the optional `cryptography` dependency); a hybrid ML-DSA-65 + Ed25519 signer can be
-registered by the caller (see `register_algorithm`) — NIST IR 8547 (an initial public DRAFT, not a final standard)
-proposes deprecating the quantum-vulnerable signatures after 2030 and disallowing them after 2035, inside the
-retention window that starts today, so the seal MUST be renewable.
+registered by the caller (see `register_algorithm`) — NIST IR 8547 (final, October 2026, §4.1.1 Table 2) deprecates
+the quantum-vulnerable signatures (EdDSA included) after 2030 and disallows them after 2035 under NIST standards and
+guidelines, inside the retention window that starts today, so the seal MUST be renewable.
 
 Honest scope: with ts_source="asserted" the time is the prover's claim, NOT an objective anchor; pass
 ts_source="rfc3161" (or "ots") only after obtaining a third-party timestamp, and inject `timestamp_trust_fn`
@@ -61,8 +61,11 @@ def _ed_gen():
     return sk, sk.public_key().public_bytes_raw().hex()
 
 
-# NIST IR 8547 (initial public draft, Nov 2024): quantum-vulnerable digital signatures (Ed25519 included) deprecated
-# after 2030 and disallowed after 2035. Used as the DEFAULT policy so that "always valid" is never the silent default.
+# NIST IR 8547 (final, October 2026, https://doi.org/10.6028/NIST.IR.8547, §4.1.1 Table 2): quantum-vulnerable digital
+# signatures (EdDSA of at least 128 bits, Ed25519 included) "Deprecated after 2030", "Disallowed after 2035". The same
+# section equates "after 2030" with January 1, 2031, so the text's instants are 2031-01-01 and 2036-01-01; these
+# constants are one year earlier (unchanged since 0.1.0; a stricter default, spec/LEGAL_BASIS.md re-check of 17/11/2026).
+# Used as the DEFAULT policy so that "always valid" is never the silent default.
 NIST_IR_8547_DISALLOWED_AFTER = 2051222400.0   # 2035-01-01T00:00:00Z
 NIST_IR_8547_DEPRECATED_AFTER = 1893456000.0   # 2030-01-01T00:00:00Z
 
