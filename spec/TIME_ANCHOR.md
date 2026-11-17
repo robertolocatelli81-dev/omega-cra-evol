@@ -1,7 +1,7 @@
 # The time anchor of a long-term seal record — `cra-lta-time-anchor/1` (2026-11-15)
 
 Status: normative for `omega_cra_evol.longterm` (`LongTermEvidence.seal`, `cra seal`) and `omega_cra_evol.time_anchor`
-from 0.12.0. Written before the code (15/11/2026). It defines what the RFC 3161 token of a seal record
+from 0.12.0. Written before the code (15/11/2026); §5 steps 7–8 and §7 amended before the code of 0.13.0 (17/11/2026, §8). It defines what the RFC 3161 token of a seal record
 stamps, which time the record carries, and how a verifier checks both against a TSA it pins. Until now no token was
 verified by this package: `LongTermEvidence.verify` called a `timestamp_trust_fn` the caller had to write, and the
 package shipped none (its own tests passed `lambda r: True`, which accepts anything, the string `not base64!` included).
@@ -76,9 +76,33 @@ reason, written to `fn.log`, and the function returns `False`:
 6. `t_not_gen_time` — `t` is not the string §3 defines (`repr` of the float of genTime: `" 1.0"`, `"+1.0"`, `"1"` for
    `"1.0"` are refused, though `float()` reads them as the same number);
 7. `signature_invalid` — the token's CMS signature does not verify (`openssl cms -verify -noverify`, with the pinned
-   certificates as candidate signers);
-8. `not_issued_by_pinned_tsa` — `openssl ts -verify` against the pinned certificates (`-partial_chain`, validity at
-   `genTime` with `-attime`) does not answer `Verification: OK`.
+   certificates as candidate signers; the certificate it verified with is the signer certificate of step 8);
+8. `not_issued_by_pinned_tsa` — the token is not established under the pinned certificates. How depends on how its
+   SignerInfo names the signer (`sid`, RFC 5652 §5.3; both forms are allowed):
+   - **issuerAndSerialNumber**: `openssl ts -verify` against the pinned certificates (`-partial_chain`, the pinned
+     certificates also as `-untrusted`, validity at `genTime` with `-attime`) does not answer `Verification: OK`.
+   - **subjectKeyIdentifier** (from 0.13.0): openssl's TS code reads the token as PKCS #7, whose SignerInfo has only the
+     first form, and refuses this one with an ASN.1 error, so 0.12.0 refused a valid token of this form. The checks
+     `ts -verify` makes are made one by one, as cryptovalid-opencore's SPEC §11 step 7 makes them (v0.10, same
+     author): the token has exactly one SignerInfo, with signed attributes; (a) a signed attribute signingCertificate
+     (RFC 2634 §5.4, SHA-1) or signingCertificateV2 (RFC 5035; its `hashAlgorithm`, SHA-256 when absent, with no
+     parameter or a NULL one), at least one present, each present once with exactly one value holding exactly one
+     ESSCertID (more than one is not evaluated here and fails) whose `certHash` is the hash of the signer
+     certificate and whose `issuerSerial`, when present, is exactly one directoryName equal to the certificate's issuer
+     and the certificate's serial number (compared as integers); (b) the TSTInfo `tsa` field, when present: one
+     GeneralName, a directoryName equal to the signer's subject, or equal to one of the names of the signer's
+     subjectAltName (a directoryName compared as a name, another type with the same type and the same bytes, as
+     OpenSSL's `GENERAL_NAME_cmp`); (c) `openssl verify -purpose timestampsign -partial_chain -attime <genTime>
+     -CAfile <pinned> -no-CApath -no-CAstore -untrusted <pinned and the token's certificates> <signer certificate>`
+     exits 0: the extended key usage timeStamping as OpenSSL's purpose reads it, the chain to a pinned certificate with
+     OpenSSL's chain building (a pinned leaf does not end it: the CA the token carries above it is checked too), the
+     validity at `genTime`, and no certificate of the system store (`SSL_CERT_DIR`, the default directory or store)
+     taking part. Two names are equal as OpenSSL's `X509_NAME_cmp` compares them: each attribute value of a string type
+     (UTF8String, PrintableString, IA5String, VisibleString, T61String read as Latin-1, BMPString, UniversalString) is
+     turned into UTF-8, white space at both ends removed, each run of white space made one space, ASCII letters
+     lowercased; values of other types are compared as encoded; the same RDNs in the same order, each RDN the same
+     attributes in any order. An openssl that rejects one of these options as unknown (before 3.0, or not OpenSSL) did
+     not run the check: `TimeAnchorNotRun`, no verdict.
 
 9. `token_sha3_mismatch` — `token_sha3` is absent or not the SHA3-256 hex of the `token_b64` string.
 
@@ -102,3 +126,18 @@ own field).
 Revocation of the TSA certificate (no CRL or OCSP is fetched); the TSA's `accuracy`; trusted lists; renewal of the
 TSA's own trust after its certificate expires (a later record of the chain, made before that, is the renewal). The
 verifier reads `genTime`; it does not compare it with a clock.
+
+Qualified electronic time stamps: under Commission Implementing Regulation (EU) 2025/1929 (OJ L, 30.9.2025, in force
+from 20 October 2025; Annex, adaptation of ETSI EN 319 422 clause 9.1, "Regulation compliance statement"), a token the
+TSA declares a qualified electronic time stamp contains one qcStatements extension (RFC 3739 §3.2.6), not critical,
+with one statement `esi4-qtstStatement-1`; whether the TSA holds the qualified status is read on the EU trusted lists.
+This verifier reads neither: it never reports a token as qualified, and a token with that statement is checked as any
+other (read on CELLAR on 17/11/2026, sha256 of the Official Journal XHTML `835e781cf749d866…`).
+
+## 8. Amendment of 17/11/2026 (0.13.0)
+
+Written before the code. §5 step 8 gains the subjectKeyIdentifier form; step 7 names the signer certificate step 8
+reads. A record whose token names its signer by issuerAndSerialNumber is checked exactly as in 0.12.0. A record whose
+token names it by subjectKeyIdentifier was always refused by 0.12.0 (`not_issued_by_pinned_tsa`, the ASN.1 error of
+`ts -verify`); from 0.13.0 it is accepted when (a), (b) and (c) pass. This changes verdicts, hence a minor version. The
+format, the anchor name `cra-lta-time-anchor/1` and the closed list of reasons do not change.
