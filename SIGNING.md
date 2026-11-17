@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # Signing and release verification
 
 This file says which keys sign omega-cra-evol releases and how anyone can check them. Only **public** keys and
@@ -66,7 +67,7 @@ signatures are "Deprecated after 2030" and "Disallowed after 2035" under NIST st
 
 The release verification of §1 (`cra verify`) does not date-limit the Ed25519 signature of the pack. The long-term seal
 of this package does: by default `LongTermEvidence.verify` treats an Ed25519 record as no longer trusted from
-2035-01-01T00:00:00Z (`AlgorithmPolicy.nist_ir_8547()`, one year earlier than the text's "after 2035"; see
-`spec/LEGAL_BASIS.md`, re-check of 17/11/2026); a seal is to be renewed with another algorithm before that date
+2036-01-01T00:00:00Z, the first instant "after 2035" (`AlgorithmPolicy.nist_ir_8547()`; see `spec/LEGAL_BASIS.md`,
+re-check of 17/11/2026); a seal is to be renewed with another algorithm before that date
 (`register_algorithm`; for example a hybrid Ed25519 and ML-DSA-65 signer). Moving the key of §1 to another algorithm is
 a key change in the sense of §5.
