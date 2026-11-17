@@ -2,6 +2,9 @@
 
 ## Unreleased (0.13.0)
 
+- **SECURITY.md: no fixed response times.** The 72-hour acknowledgement and 14-day fix promises are replaced by
+  "as soon as possible, with no SLA or fixed deadline": one maintainer, non-commercial, consistent with SIGNING.md.
+
 - **An RFC 3161 token whose TSA names its signer by subjectKeyIdentifier is verified instead of refused**
   (`spec/TIME_ANCHOR.md` §5 step 8, amended before the code). RFC 5652 §5.3 allows a SignerInfo to name its signer by
   subjectKeyIdentifier; `openssl ts -verify` reads the token as PKCS #7 and refuses that form with an ASN.1 error, so
