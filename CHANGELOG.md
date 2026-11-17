@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased (0.13.0)
+
+- **An RFC 3161 token whose TSA names its signer by subjectKeyIdentifier is verified instead of refused**
+  (`spec/TIME_ANCHOR.md` §5 step 8, amended before the code). RFC 5652 §5.3 allows a SignerInfo to name its signer by
+  subjectKeyIdentifier; `openssl ts -verify` reads the token as PKCS #7 and refuses that form with an ASN.1 error, so
+  0.12.0 refused a valid token of this form as `not_issued_by_pinned_tsa`, in `make_timestamp_trust_fn` and in
+  `cra seal --tsa-cert` (nothing recorded). For that form the checks of `ts -verify` are now made one by one, ported from
+  cryptovalid-opencore's SPEC §11 step 7 (v0.10, same author): exactly one SignerInfo with signed attributes; the ESS
+  signingCertificate or signingCertificateV2 attribute, its shape closed, with exactly one ESSCertID whose certHash and
+  issuerSerial name the signer certificate; the TSTInfo `tsa` field (one GeneralName: the signer's subject or one of
+  its subjectAltName); names compared as OpenSSL's `X509_NAME_cmp` compares them; `openssl verify -purpose
+  timestampsign -partial_chain -attime <genTime> -no-CApath -no-CAstore` with the pinned certificates and those of the
+  token, so no system certificate takes part. An openssl that does not know these options (before 3.0) raises
+  `TimeAnchorNotRun`, never a refusal. A token naming its signer by issuerAndSerialNumber is checked as in 0.12.0. The
+  closed list of reasons does not change. **Changes verdicts**: a record refused by 0.12.0 can be accepted.
+  Positive control: the class `SealedKeyId` of `tests/test_time_anchor_key_id_20261117.py`, run on the tree of v0.12.0
+  (OpenSSL 3.0.22), fails 4 of its 7 tests, each a valid key-identified record refused; here the file's 30 tests pass.
+  Negatives: another certificate's key identifier, another TSA's key, no ESS attribute, a certificate without
+  timeStamping, a `tsa` field naming another TSA, a system certificate directory trusting another CA, two SignerInfos,
+  an openssl without `-no-CAstore`. Generative: every DER element of the token dropped, duplicated, retagged, given a
+  stranger element or flipped (the step never raises; every change inside the ESS attribute that leaves it invalid is
+  refused). 31 of 31 mutants chosen by hand on the changed lines are killed.
+- **Qualified time stamps** (`spec/TIME_ANCHOR.md` §7): the qcStatements extension with `esi4-qtstStatement-1` that
+  Implementing Regulation (EU) 2025/1929 requires in a token declared qualified, and the EU trusted lists, are not
+  read; this tool never reports a token as qualified (it did not before either: the word appears nowhere in its output).
+- **Legal basis re-checked on 17/11/2026** (`spec/LEGAL_BASIS.md`), on the Official Journal texts and CELLAR: the CRA
+  corrigenda of 05/12/2024, 02/07/2025 (Art. 64(10): the derogation from the fines now starts at paragraph 2, so micro
+  and small manufacturers are not fined for missing the 24 h early warnings of Art. 14(2)(a) and 14(4)(a); the
+  deadlines stay) and 17/10/2025; Implementing Regulation (EU) 2025/2392 (technical description of important and
+  critical products, in force 21/12/2025); Delegated Regulations (EU) 2025/1535 (vehicles of Regulation 168/2013
+  excluded, in force 18/11/2025) and 2026/881 (when the CSIRT may delay dissemination, in force 10/05/2026). A table
+  says, paragraph by paragraph of Art. 14, what this tool supports and what it does not (it does not determine the
+  coordinating CSIRT of 14(7), the enterprise size of Art. 64(10) or a product's class). No verdict changes.
+- **NIST IR 8547 is cited as final** (October 2026, §4.1.1 Table 2) in `longterm.py` and `spec/LEGAL_BASIS.md`, no longer
+  as the initial public draft. Its dates are unchanged ("Deprecated after 2030", "Disallowed after 2035"). The default
+  policy `AlgorithmPolicy.nist_ir_8547()` treats Ed25519 as broken from 2035-01-01, unchanged since 0.1.0; the text,
+  which equates "after 2030" with January 1, 2031, puts it a year later, and the comment now says so.
+- **SIGNING.md**: which keys sign the releases and how to check a release (the evidence pack with `cra verify`, the
+  attestations, `SHA256SUMS`, the SSH signatures). Each statement was read on 17/11/2026 against the 19 releases.
+  `THIRD_PARTY_NOTICES.md` now names the ENISA page kept as a fixture, the quoted EU acts and NIST IR 8547, the sbomify
+  responses (sbomify is Apache-2.0 with the Commons Clause condition; the fixtures are its output on synthetic data)
+  and the port from cryptovalid-opencore.
+- Full suite as the CI runs it: 607 tests on Python 3.9 and on 3.13 with the `sign` and `schema` extras and the
+  cryptovalid 0.15.0 wheel, OK, 2 skipped (a live feed and an install-only check), every test class run; without any
+  optional dependency, 607 tests, OK, 127 skipped (one of them new: the name test builds its names with `cryptography`).
+
 ## 0.12.0 — 2026-11-16 — supply chain of the release measurable by third parties
 
 - **A seal's RFC 3161 token is bound to its record and can be verified** (`spec/TIME_ANCHOR.md`,

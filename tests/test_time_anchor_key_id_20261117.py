@@ -36,6 +36,11 @@ from omega_cra_evol.longterm import LongTermEvidence, Signer, register_algorithm
 from omega_cra_evol import time_anchor as TA  # noqa: E402
 
 NEEDS = unittest.skipUnless(shutil.which("openssl"), "needs openssl")
+try:
+    import cryptography  # noqa: F401
+    HAVE_CRYPTOGRAPHY = True
+except ImportError:
+    HAVE_CRYPTOGRAPHY = False
 register_algorithm("test-keyid", gen=lambda: ("sk", "pk-" + os.urandom(4).hex()), sign=lambda sk, m: m.hex(),
                    verify=lambda pub, sig, m: sig == m.hex())
 D = hashlib.sha3_256(b"key-identified signer").hexdigest()
@@ -457,6 +462,7 @@ class AnchorParts(unittest.TestCase):
             why = self.anchor(enc(t), pins=pins, leaf=leaf, at=now)
             self.assertEqual(why is None, ok, why)
 
+    @unittest.skipUnless(HAVE_CRYPTOGRAPHY, "needs `cryptography` (the `sign` extra) to build the names")
     def test_names_compared_as_openssl(self):
         """the tsa field and the ESS issuerSerial name are compared as X509_NAME_cmp compares names"""
         from cryptography import x509
