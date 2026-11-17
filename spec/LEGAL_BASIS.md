@@ -106,7 +106,9 @@ the Art. 14 deadlines). Texts of the Official Journal from the Publications Offi
 each file, first 16 hex digits); entry into force from the CELLAR SPARQL field `resource_legal_date_entry-into-force`.
 CELLAR lists, for English titles containing "2024/2847": the Regulation, its corrigenda R(01), R(02) and R(04), and the
 Commission acts 2025/1535, 2025/2392 and 2026/881 (a search by title: an act that does not name the Regulation in its
-title is not found this way).
+title is not found this way). Corrigendum R(03) (OJ L 2025/90768, 3.10.2025) has no English version; the French one,
+read on 17/11/2026, corrects a word of Annex I, Part I, point (2)(c) ("à ce leurs" → "à ce que leurs"; no German,
+Italian, Spanish or Polish version either). No effect on this tool.
 - Regulation (EU) 2024/2847, same file as on 19/10/2026 (sha256 `fe0cca4a0caec50e…`): Art. 14 re-read whole; Art. 64(2),
   64(10) and 67 read for the corrigenda below.
 - **Corrigendum R(01)**, OJ L 2024/90780, 5.12.2024 (`c1bbbc0e2734c7f3…`): the title reads "(EU) 2019/1020" for "(EU)
@@ -163,7 +165,7 @@ Article 14, paragraph by paragraph, and what this tool supports (17/11/2026):
 | (6): intermediate report when the CSIRT asks | stage `intermediate`, recorded and attested | no deadline (the Regulation gives none); completeness not evaluated |
 | (7): which CSIRT (main establishment, then the order (a)–(d)) | — | the coordinating CSIRT is not determined by this tool (field 5 lists the Member States where the product is available, not which CSIRT coordinates) |
 | (8): inform the impacted users, where appropriate in a structured, machine-readable format | the instant (`user_information`, stage `users_informed`); a CSAF 2.0, OpenVEX or CycloneDX VEX document can be kept as an attachment of the locker | no deadline (the Regulation gives none); no advisory is written by this tool |
-| (9), (10): delegated act on delaying dissemination (2026/881); implementing acts on format and procedures | 2026/881: see above | no Art. 14(10) implementing act exists to follow (CELLAR, 17/11/2026) |
+| (9), (10): delegated act on delaying dissemination (2026/881); implementing acts on format and procedures | 2026/881: see above | no Art. 14(10) implementing act found to follow (CELLAR, search by title, 17/11/2026) |
 
 | Obligation | What this tool does | Reference |
 |---|---|---|

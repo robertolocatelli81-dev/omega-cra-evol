@@ -52,12 +52,13 @@ Every release has a `SHA256SUMS` asset. It lists every other asset of the releas
 where it lists the wheel and the sdist only (read on 17/11/2026). The files on PyPI must have the same SHA-256 as listed
 there.
 
-## 5. Key changes and compromise
+## 5. Key changes
 
-- A planned key change is announced in the release notes and in this file at least 6 months before the old key
-  stops being used; for that period both keys are listed.
-- If a private key is suspected compromised, a GitHub security advisory is published on this repository, this file
-  is updated the same day, and the affected releases are listed.
+- A planned key change is announced in advance in the release notes, signed by both the old and the new key. The list
+  of every key ever used is kept in this file and never deleted.
+- If a key is suspected compromised, it stops being used immediately, and an advisory is published as soon as
+  possible, giving the cut-off date and the SHA-256 of the releases that remain trustworthy.
+- No SLA or fixed deadline is promised for these steps.
 
 ## 6. Post-quantum transition
 
@@ -69,5 +70,4 @@ The release verification of §1 (`cra verify`) does not date-limit the Ed25519 s
 of this package does: by default `LongTermEvidence.verify` treats an Ed25519 record as no longer trusted from
 2036-01-01T00:00:00Z, the first instant "after 2035" (`AlgorithmPolicy.nist_ir_8547()`; see `spec/LEGAL_BASIS.md`,
 re-check of 17/11/2026); a seal is to be renewed with another algorithm before that date
-(`register_algorithm`; for example a hybrid Ed25519 and ML-DSA-65 signer). Moving the key of §1 to another algorithm is
-a key change in the sense of §5.
+(`register_algorithm`; for example a hybrid Ed25519 and ML-DSA-65 signer).

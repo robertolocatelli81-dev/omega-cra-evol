@@ -35,8 +35,9 @@
   coordinating CSIRT of 14(7), the enterprise size of Art. 64(10) or a product's class). No verdict changes.
 - **NIST IR 8547 is cited as final** (October 2026, §4.1.1 Table 2) in `longterm.py` and `spec/LEGAL_BASIS.md`, no longer
   as the initial public draft. Its dates are unchanged ("Deprecated after 2030", "Disallowed after 2035").
-- **The NIST IR 8547 instants follow the final text** (changes verdicts). §4.1.1 equates "after 2030" with January 1,
-  2031, so `NIST_IR_8547_DEPRECATED_AFTER` is now 2031-01-01T00:00:00Z and `NIST_IR_8547_DISALLOWED_AFTER`
+- **The NIST IR 8547 instants follow the final text** (changes verdicts). §4.1.1 puts "deprecate … after 2030" in
+  place of the disallowance SP 800-57 had projected "on January 1, 2031"; read as from January 1, 2031, so
+  `NIST_IR_8547_DEPRECATED_AFTER` is now 2031-01-01T00:00:00Z and `NIST_IR_8547_DISALLOWED_AFTER`
   2036-01-01T00:00:00Z; from 0.1.0 to 0.12.0 they were 2030-01-01 and 2035-01-01, one year earlier. The default policy
   `AlgorithmPolicy.nist_ir_8547()` uses the second: an Ed25519 outer seal checked with `now` in 2035, or a renewal made
   in 2035 over an Ed25519 record, was refused and is now accepted; from 2036-01-01 it is refused as before. The first
