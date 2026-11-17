@@ -30,8 +30,10 @@ its key with this file before trusting it.
 
 ## 2. Commits and tags (SSH signatures)
 
-Commits and release tags are signed with an SSH Ed25519 key. Fingerprint: `SHA256:YTnE9PgWCm9XNiECrqk1Q645tWJUaRFO1WabYSJSfTo`
-(the signing key registered on the author's GitHub account). GitHub shows them as "Verified"; locally,
+The release tags from v0.7.0 on, and every commit after v0.10.0, are signed with an SSH Ed25519 key. Fingerprint:
+`SHA256:YTnE9PgWCm9XNiECrqk1Q645tWJUaRFO1WabYSJSfTo` (the signing key registered on the author's GitHub account). The
+tags v0.1.0 … v0.6.0 and 74 commits up to v0.10.0 carry no signature (counted on 2026-11-17). GitHub shows the signed
+ones as "Verified"; locally,
 `git verify-tag <tag>` and `git verify-commit <commit>` with an allowed-signers file (`gpg.ssh.allowedSignersFile`)
 containing that key.
 

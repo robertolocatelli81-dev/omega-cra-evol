@@ -29,8 +29,7 @@ confidential, so that the answer serves the next person.
 
 ## What to expect
 
-- **Security reports**: acknowledgement within 72 hours, a fix or a written rationale within 14 days for anything
-  exploitable (SECURITY.md).
+- **Security reports**: answered and fixed as soon as possible, with no SLA or fixed deadline (SECURITY.md).
 - **Everything else**: best effort by one person, with no promised time. An issue that will not be worked on is
   closed with the reason, not left open.
 - **No paid support, commercial licence or pilot is offered at present.**
