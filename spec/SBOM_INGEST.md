@@ -67,10 +67,10 @@ reading: the requirement is the same for JSON in every version, because the two 
 and the XML schema is the project's machine-readable rule.
 
 The identifiers are the string values of every member named `bom-ref` of an object anywhere in the document, except
-(a) in an item of a `patentAssertions` array — the 1.7 JSON schema describes that member as "A reference to the patent
+in an item of a `patentAssertions` array — the 1.7 JSON schema describes that member as "A reference to the patent
 or patent family object within the BOM. This must match the `bom-ref` of a `patent` or `patentFamily` object", the 1.7
-XML schema as an identifier; with the two in contradiction it is not counted, which can only accept more — and (b)
-inside a `signature` or `signatures` member (JSF, not CycloneDX data). Values are compared as exact strings. After the
+XML schema as an identifier; with the two in contradiction it is not counted, which can only accept more. (A JSF
+`signature` cannot hold a `bom-ref` member in a document that passes the schema: `publicKey` refuses it.) Values are compared as exact strings. After the
 schema check passes, a value that appears more than once makes the document **not conformant**: refused with
 `CycloneDX not conformant to bom-<v> (bom-ref unique within the BOM): '<value>' appears <n> times`, nothing recorded;
 with `--allow-nonconformant` recorded with that text in `source.schema_check`, floor not met.
@@ -90,6 +90,6 @@ refused**. Read: `dependencies[].ref`, `dependencies[].dependsOn[]`, `dependenci
 `compositions[].assemblies[]`, `compositions[].dependencies[]`, `compositions[].vulnerabilities[]`; a string matching
 the BOM-Link form `urn:cdx:` points into another BOM and is not counted. The known identifiers are those of rule 5, of
 every kind of object (0.12.0 knew only `components` and `metadata.component`, so an edge to a service was reported as
-dangling). `source.dangling_edges` keeps its meaning (distinct `dependsOn` targets that resolve to nothing),
+dangling). `source.dangling_edges` keeps its meaning (distinct `dependsOn` targets that resolve to nothing; a BOM-Link is not counted there either),
 `source.dangling_refs` lists the first ten distinct unresolved values of all the fields above, and
 `source.dangling_by_field` counts them per field (`{}` when every reference resolves).
