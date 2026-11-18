@@ -179,7 +179,7 @@ def build_statement(drop_path: str, ledger_path: str, product_id: Optional[str] 
     default): v0.2 carries the notice's CVE / EUVD identifiers (read from the drop file, v0.2 §6; one out of form is
     refused) and, if given, case_reference {"issuer", "id"} (v0.2 §2.2)."""
     from . import __version__
-    from .notice_check import check_notice, load_json_object
+    from .notice_check import MAX_DROP_BYTES, _parse_json_object, check_notice
     if predicate not in TYPE_OF:
         raise AttestRefused(f"predicate {predicate!r}: v0.1 or v0.2")
     if case_reference is not None:
@@ -189,14 +189,17 @@ def build_statement(drop_path: str, ledger_path: str, product_id: Optional[str] 
                 or not all(reference_ok(case_reference[k]) for k in ("issuer", "id"))):
             raise AttestRefused("--case-reference ISSUER ID: each 1 to 255 characters, no control character, no leading "
                                 "or trailing space (art14-filing v0.2 §2.2)")
-    raw = read_regular(drop_path)
-    p = load_json_object(drop_path)
+    # spec/art14-filing v0.1 §4.2 (18/11/2026): the notice file is read ONCE; the digests, the predicate and the check
+    # against the ledger are of the same bytes (0.12.0 read it three times: a file changed between two reads was signed
+    # with a predicate of other bytes than the subject digest binds)
+    raw = read_regular(drop_path, MAX_DROP_BYTES)
+    p = _parse_json_object(raw, os.path.basename(drop_path))
     sch = p.get("schema")
     if sch not in ("cra-srp/2", "cra-srp/3"):
         raise AttestRefused(f"schema {sch!r}: the subject of art14-filing {predicate} is a cra-srp/2 or cra-srp/3 drop file")
     if filing is not None and sch != "cra-srp/2":
         raise AttestRefused("--srp-reference/--filed-at/--filed-by: a cra-srp/3 notice carries the filing its source recorded")
-    r = check_notice(drop_path, ledger_path)
+    r = check_notice(drop_path, ledger_path, raw=raw)
     if not r["verified"]:
         raise AttestRefused(f"the drop file does not verify against the ledger: {r['reasons'][:3]}")
     sha3 = hashlib.sha3_256(raw).hexdigest()
@@ -666,12 +669,12 @@ def _check_rule5(p: Dict[str, Any], pr: Dict[str, Any], out: Dict[str, Any], rea
 
 
 def _check_drop(drop_path: str, pr: Dict[str, Any], dg: Dict[str, str], out: Dict[str, Any], reasons: List[Dict[str, str]]) -> None:
-    from .notice_check import check_notice, load_json_object
+    from .notice_check import MAX_DROP_BYTES, _parse_json_object, check_notice
     n0 = len(reasons)
-    try:
-        raw = read_regular(drop_path)
-        p = load_json_object(drop_path)
-    except (OSError, ValueError) as e:
+    try:   # read ONCE (spec/art14-filing v0.1 §4.2, 18/11/2026): digest, rules 1-5 and rule 2's rebuild see the same bytes
+        raw = read_regular(drop_path, MAX_DROP_BYTES)
+        p = _parse_json_object(raw, os.path.basename(drop_path))
+    except (OSError, ValueError) as e:   # a notice nested too deep is a ValueError of _parse_json_object
         _r(reasons, "drop_unreadable", f"drop file unreadable: {e}")
         out["drop"] = "FAIL"
         return
@@ -690,7 +693,7 @@ def _check_drop(drop_path: str, pr: Dict[str, Any], dg: Dict[str, str], out: Dic
     for k, have, want in pairs:
         if have != want:
             _r(reasons, "rule1", f"drop file {k} {have!r} differs from the predicate's {want!r} (§4.2 rule 1)")
-    r = check_notice(drop_path)           # rule 2: rebuilt under the recorded glossary
+    r = check_notice(drop_path, raw=raw)  # rule 2: rebuilt under the recorded glossary, from the bytes read above
     if not r["verified"]:
         _r(reasons, "rule2", f"the drop file does not re-check under its glossary: {r['reasons'][:2]}")
     else:

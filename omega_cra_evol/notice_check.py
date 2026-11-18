@@ -19,7 +19,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from .canonical import sha3_hex
-from .ledger import Ledger, read_regular
+from .ledger import FileTooLarge, Ledger, read_regular
 from .srp_notice import GLOSSARIES, LEGACY_SOURCES, SourcedSRPNotice, SRPNotice
 from .vuln import parse_utc
 
@@ -43,13 +43,20 @@ def _no_dup_keys(pairs):
 
 def load_json_object(path: str, cap: int = MAX_DROP_BYTES) -> Dict[str, Any]:
     """A JSON object from a file; a duplicate key, a non-object or invalid UTF-8 is a ValueError (never last-wins)."""
-    raw = read_regular(path, cap)
+    return _parse_json_object(read_regular(path, cap), os.path.basename(path))
+
+
+def _parse_json_object(raw: bytes, name: str) -> Dict[str, Any]:
+    """load_json_object on bytes already read (spec/art14-filing v0.1 §4.2, 18/11/2026: a file read once, its digest
+    and its JSON taken from the same bytes); `name` heads the error message."""
     try:
         v = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_dup_keys)
     except ValueError as e:
-        raise ValueError(f"{os.path.basename(path)}: {e}") from None
+        raise ValueError(f"{name}: {e}") from None
+    except RecursionError:   # 18/11/2026: was raised as it is, a traceback in `cra attest` (it catches ValueError)
+        raise ValueError(f"{name}: JSON nested too deep") from None
     if not isinstance(v, dict):
-        raise ValueError(f"{os.path.basename(path)}: not a JSON object")
+        raise ValueError(f"{name}: not a JSON object")
     return v
 
 
@@ -58,14 +65,19 @@ def _same(a: Any, b: Any) -> bool:
     return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
-def check_notice(drop_path: str, ledger_path: Optional[str] = None) -> Dict[str, Any]:
+def check_notice(drop_path: str, ledger_path: Optional[str] = None, raw: Optional[bytes] = None) -> Dict[str, Any]:
+    """`raw`: the bytes of the drop file when the caller has read them already (spec/art14-filing v0.1 §4.2, 18/11/2026:
+    the file is read once, so the bytes checked here are the bytes the caller hashed); else the file is read here, once."""
     reasons: List[str] = []
     notes: List[str] = []
     out: Dict[str, Any] = {"drop_file": os.path.basename(drop_path), "verified": False, "glossary_version": None,
                            "glossary_version_from": None, "notice_sha3": "not_checked", "reasons": reasons, "notes": notes}
     try:
-        raw = read_regular(drop_path, MAX_DROP_BYTES)
-        p = load_json_object(drop_path)
+        if raw is None:
+            raw = read_regular(drop_path, MAX_DROP_BYTES)
+        elif len(raw) > MAX_DROP_BYTES:
+            raise FileTooLarge(MAX_DROP_BYTES)
+        p = _parse_json_object(raw, os.path.basename(drop_path))
     except (OSError, ValueError, RecursionError) as e:
         reasons.append(f"drop file unreadable: {type(e).__name__}: {str(e)[:200]}")
         return out
