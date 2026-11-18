@@ -2,8 +2,8 @@
 """A CycloneDX document is checked against the official schema of its version (CHANGELOG, 0.11.0, rules 1-4).
 
 The official CycloneDX test suite (tests/data/cyclonedx_suite_6470e34: all 359 JSON files of 1.2 ... 1.7, Apache-2.0)
-is the external oracle: every `valid-*` file is recorded as conformant, every `invalid-*` (and `skip_invalid-*`) file
-is refused. On 0.10.0, 135 of the 141 invalid files were recorded and 103 of them as floor met."""
+is the external oracle: every `valid-*` file is recorded as conformant (but the two of SUITE_JSON_REPEATS_BOM_REF, from
+0.13.0), every `invalid-*` (and `skip_invalid-*`) file is refused. On 0.10.0, 135 of the 141 invalid files were recorded and 103 of them as floor met."""
 import glob
 import json
 import os
@@ -40,16 +40,26 @@ def checker_ready():
         return True
 
 
+# Two `valid-*` JSON files of the suite repeat a bom-ref that their XML twins (same commit) do not repeat; the XML
+# schema of every version declares bom-ref unique (xs:unique), so they are refused (spec/SBOM_INGEST.md, rule 5).
+SUITE_JSON_REPEATS_BOM_REF = {"valid-formulation-1.5.json": "workspace-1", "valid-citations-1.7.json": "workflow-1"}
+
 NEEDS = unittest.skipUnless(checker_ready(), "jsonschema[format] not installed: the schema check cannot run here")
 
 
 @NEEDS
 class TestOfficialSuite(unittest.TestCase):
     def test_every_file_gets_the_suite_answer(self):
-        counts = {"valid": 0, "invalid": 0}
+        counts = {"valid": 0, "invalid": 0, "valid_json_repeats_bom_ref": 0}
         for v, f in suite_files():
             name = os.path.basename(f)
-            if name.startswith("valid"):
+            if name in SUITE_JSON_REPEATS_BOM_REF:       # spec/SBOM_INGEST.md, CycloneDX rule 5 (0.13.0)
+                with self.assertRaises(ValueError, msg=name) as cm:
+                    sbom_from_cyclonedx(f, "p", "1")
+                self.assertIn("(bom-ref unique within the BOM): %r appears 2 times" % SUITE_JSON_REPEATS_BOM_REF[name],
+                              str(cm.exception))
+                counts["valid_json_repeats_bom_ref"] += 1
+            elif name.startswith("valid"):
                 rec = sbom_from_cyclonedx(f, "p", "1")
                 self.assertEqual(rec.source["schema_check"], "conformant to bom-%s.schema.json" % v, name)
                 counts["valid"] += 1
@@ -57,7 +67,7 @@ class TestOfficialSuite(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=name):
                     sbom_from_cyclonedx(f, "p", "1")
                 counts["invalid"] += 1
-        self.assertEqual(counts, {"valid": 218, "invalid": 141})
+        self.assertEqual(counts, {"valid": 216, "invalid": 141, "valid_json_repeats_bom_ref": 2})
 
     def test_refusal_names_schema_and_path(self):
         f = os.path.join(SUITE, "1.6", "invalid-metadata-timestamp-1.6.json")
@@ -85,6 +95,12 @@ class TestRecording(unittest.TestCase):
         for f in REAL:
             lk = EvidenceLocker(os.path.join(self.d, os.path.basename(f) + ".jsonl"), "tiny-cra-sample", "1.0.0")
             src = self._copy(f)
+            if os.path.basename(f).startswith("cdxgen-12.8.4_"):    # bom-ref repeated (spec/SBOM_INGEST.md, rule 5, 0.13.0)
+                with self.assertRaises(ValueError) as cm:
+                    sbom_from_cyclonedx(src, "tiny-cra-sample", "1.0.0")
+                self.assertIn("(bom-ref unique within the BOM): 'pkg:npm/@cyclonedx/cdxgen@12.8.4' appears 2 times",
+                              str(cm.exception))
+                continue
             rec = sbom_from_cyclonedx(src, "tiny-cra-sample", "1.0.0")
             self.assertTrue(rec.source["schema_check"].startswith("conformant to bom-"), f)
             e = lk.record_sbom(rec, source_path=src)

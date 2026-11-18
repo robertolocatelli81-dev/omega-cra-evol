@@ -33,7 +33,11 @@ SCHEMA_READY = cyclonedx_schema_check({"bomFormat": "CycloneDX", "specVersion": 
 
 
 def ingest(path):
-    return (sbom_from_spdx if "spdx" in os.path.basename(path) else sbom_from_cyclonedx)(path, "tiny-cra-sample", "1.0.0")
+    # cdxgen 12.8.4 repeats its tool component's bom-ref as annotations[0].annotator.component: not conformant from 0.13.0
+    # (spec/SBOM_INGEST.md, CycloneDX rule 5), so it is read here with --allow-nonconformant; these tests are about reading
+    allow = os.path.basename(path).startswith("cdxgen-12.8.4_")
+    return (sbom_from_spdx if "spdx" in os.path.basename(path) else sbom_from_cyclonedx)(path, "tiny-cra-sample", "1.0.0",
+                                                                                          allow_nonconformant=allow)
 
 
 def layer(result, name):

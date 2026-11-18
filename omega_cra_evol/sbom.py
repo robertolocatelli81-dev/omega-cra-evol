@@ -539,6 +539,15 @@ _IRI = (f"[A-Za-z][A-Za-z0-9+\\-.]*:(?://{_IAUTHORITY}{_IPATH_ABEMPTY}|/(?:{_IPC
 _IRELATIVE_REF = (f"(?://{_IAUTHORITY}{_IPATH_ABEMPTY}|/(?:{_IPCHAR}+{_IPATH_ABEMPTY})?"
                   f"|(?:[{_IUNRESERVED}{_SUB_DELIMS}@]|{_PCT})+{_IPATH_ABEMPTY}|){_QUERY_FRAGMENT}")
 IRI_REFERENCE = re.compile(f"(?:{_IRI}|{_IRELATIVE_REF})")
+# RFC 3986 §3 `URI` (absolute, ASCII): the same rules without the IRI's ucschar / iprivate (spec/SBOM_INGEST.md, SPDX
+# rule 7: the SPDX §10.4 format "Uniform Resource Locator", RFC 3986 being the specification's normative reference).
+_UNRESERVED = "A-Za-z0-9\\-._~"
+_PCHAR = f"(?:[{_UNRESERVED}{_SUB_DELIMS}:@]|{_PCT})"
+_HOST = f"(?:\\[(?:{_IPV6}|{_IPVFUTURE})\\]|(?:[{_UNRESERVED}{_SUB_DELIMS}]|{_PCT})*)"
+_AUTHORITY = f"(?:(?:[{_UNRESERVED}{_SUB_DELIMS}:]|{_PCT})*@)?{_HOST}(?::[0-9]*)?"
+_PATH_ABEMPTY = f"(?:/{_PCHAR}*)*"
+URI = re.compile(f"[A-Za-z][A-Za-z0-9+\\-.]*:(?://{_AUTHORITY}{_PATH_ABEMPTY}|/(?:{_PCHAR}+{_PATH_ABEMPTY})?"
+                 f"|{_PCHAR}+{_PATH_ABEMPTY}|)(?:\\?(?:{_PCHAR}|[/?])*)?(?:#(?:{_PCHAR}|[/?])*)?")
 
 
 def is_iri_reference(instance: Any) -> bool:
@@ -803,12 +812,15 @@ def cyclonedx_schema_check(d: Any) -> Tuple[str, str]:
     return "not_conformant", f"not conformant to bom-{spec}.schema.json at {where}: {err.message}"[:300]
 
 
-# Schema check of an ingested SPDX document (CHANGELOG, 0.11.0, SPDX rules 1-5). The official schemas ship in
-# data/spdx/ (SHA-256 in SOURCES.txt); none of them uses a `format` keyword, so jsonschema alone checks them.
-_SPDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "spdx")
-_SPDX2_SCHEMAS = {"SPDX-2.2": "spdx-schema-v2.2.2.json", "SPDX-2.3": "spdx-schema-v2.3.json"}
-SPDX3_CONTEXT_301 = "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"
+# Schema check of an ingested SPDX document (CHANGELOG, 0.11.0, SPDX rules 1-5; spec/SBOM_INGEST.md, rule 6). The
+# official schemas ship in data/spdx/ (SHA-256 in SOURCES.txt); none of them uses a `format` keyword, so jsonschema alone
+# checks them. SPDX-2.2: the corrected schema of spdx/spdx-spec development/v2.2.2 (the tag v2.2.2 holds a 2.2.1-era
+# schema whose referenceCategory enum contradicts §7.21, spdx-spec#798 / #836); SPDX-2.3: the maintenance release 2.3.1.
 _SPDX3_SCHEMA = "spdx-json-schema-3.0.1.json"
+_SPDX_SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "spdx")
+_SPDX2_SCHEMAS = {"SPDX-2.2": "spdx-schema-v2.2.2-4694d1f.json", "SPDX-2.3": "spdx-schema-v2.3.1.json"}
+_SPDX_DIALECT = {_SPDX3_SCHEMA: "Draft202012Validator", "spdx-schema-v2.3.1.json": "Draft201909Validator"}
+SPDX3_CONTEXT_301 = "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"
 _SPDX_VALIDATORS: Dict[str, Any] = {}
 
 
@@ -820,9 +832,10 @@ def _spdx_validator(name: str):
         import jsonschema                  # the extra [schema]
     except ImportError as e:
         return None, f"jsonschema is not installed ({e}); install omega-cra-evol[schema]"
-    cls = getattr(jsonschema, "Draft202012Validator" if name == _SPDX3_SCHEMA else "Draft7Validator", None)
-    if cls is None:                        # a jsonschema older than 4.0 has no 2020-12 validator
-        return None, "jsonschema too old (no JSON Schema 2020-12 validator); install omega-cra-evol[schema]"
+    dialect = _SPDX_DIALECT.get(name, "Draft7Validator")
+    cls = getattr(jsonschema, dialect, None)
+    if cls is None:                        # a jsonschema older than 4.0 has no 2019-09 / 2020-12 validator
+        return None, f"jsonschema too old (no {dialect}); install omega-cra-evol[schema]"
     with open(os.path.join(_SPDX_SCHEMA_DIR, name), "rb") as fh:
         doc = json.loads(fh.read().decode("utf-8"))
     cls.check_schema(doc)
@@ -867,6 +880,24 @@ def spdx_schema_check(d: Any) -> Tuple[str, str]:
     return "not_conformant", f"not conformant to {name} at {where}: {err.message}"[:300]
 
 
+def _cdx_identifiers(d: Any) -> List[str]:
+    """CycloneDX rule 5 (spec/SBOM_INGEST.md): the string values of every `bom-ref` member of an object, in document
+    order, except in an item of a `patentAssertions` array (1.7 JSON: a reference to a patent). Iterative: a document the
+    parser accepts may nest 512 levels."""
+    out: List[str] = []
+    stack: List[Tuple[Any, Optional[str]]] = [(d, None)]
+    while stack:
+        node, parent_key = stack.pop()
+        if isinstance(node, dict):
+            r = node.get("bom-ref")
+            if isinstance(r, str) and parent_key != "patentAssertions":
+                out.append(r)
+            stack.extend((v, k) for k, v in reversed(list(node.items())))
+        elif isinstance(node, list):
+            stack.extend((v, parent_key) for v in reversed(node))
+    return out
+
+
 def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
                         allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest a CycloneDX JSON (1.2 … 1.7) from ANY generator: components are walked recursively (a generator may
@@ -879,6 +910,18 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
     if not isinstance(d, dict) or d.get("bomFormat") != "CycloneDX":
         raise ValueError("CycloneDX malformed: not a JSON object with bomFormat 'CycloneDX'")
     schema_state, schema_text = cyclonedx_schema_check(d)
+    ids = _cdx_identifiers(d)
+    seen: Dict[str, int] = {}
+    for r in ids:
+        seen[r] = seen.get(r, 0) + 1
+    repeated = [r for r in dict.fromkeys(ids) if seen[r] > 1]      # document order of the first occurrence
+    # rule 5 (spec/SBOM_INGEST.md): 1.4-1.7 "MUST"/"must"/ECMA-424 "shall" be unique -> not conformant; 1.2-1.3 JSON
+    # text "should be unique" -> reported only (source.bom_ref_repeated)
+    if schema_state == "conformant" and repeated and d.get("specVersion") not in ("1.2", "1.3"):
+        dup = repeated[0]
+        schema_state = "not_conformant"
+        schema_text = (f"not conformant to bom-{d.get('specVersion')} (bom-ref unique within the BOM): "
+                       f"{dup[:120]!r} appears {seen[dup]} times")[:300]
     if schema_state == "not_conformant" and not allow_nonconformant:   # rule 1: refused, nothing recorded
         raise ValueError("CycloneDX " + schema_text + " (--allow-nonconformant records it, never as floor met)")
     md = d.get("metadata")
@@ -936,27 +979,25 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
     # CycloneDX 1.6 types a `dependsOn` item as refLinkType: "an element identified by the attribute bom-ref in the
     # SAME BOM document". Counting the edges without resolving them says nothing about whether the graph closes —
     # measured 24/09/2026 on an ORT reporter fixture where 1 of 6 edges pointed at a bom-ref absent from components,
-    # and this summary reported 6 edges with no sign of it.
-    def _refs(node):            # bom-ref values as they appear in the DOCUMENT, nested components included
-        out = set()
-        for c in node if isinstance(node, list) else []:
-            if isinstance(c, dict):
-                r = _s(c.get("bom-ref"))
-                if r:
-                    out.add(r)
-                out |= _refs(c.get("components"))
-        return out
-
-    known_refs = _refs(d.get("components"))
-    md_ref = _s(((d.get("metadata") or {}).get("component") or {}).get("bom-ref")) if isinstance(d.get("metadata"), dict) else ""
-    if md_ref:
-        known_refs.add(md_ref)
+    # and this summary reported 6 edges with no sign of it. Rule 6 (spec/SBOM_INGEST.md): every reference field is
+    # resolved against the identifiers of every kind of object (0.12.0 knew only components and metadata.component).
+    known_refs = set(ids)
     edges = [t for x in deps if isinstance(x, dict) and isinstance(x.get("dependsOn"), list) for t in x["dependsOn"]]
-    dangling = sorted({_s(t) for t in edges if _s(t) not in known_refs})
+    unresolved: Dict[str, set] = {}
+    for top, fields in (("dependencies", ("ref", "dependsOn", "provides")),
+                        ("compositions", ("assemblies", "dependencies", "vulnerabilities"))):
+        for x in _lst(d.get(top)):
+            for fld in fields if isinstance(x, dict) else ():
+                vals = [x.get(fld)] if fld == "ref" else _lst(x.get(fld))
+                for t in vals:
+                    if isinstance(t, str) and t not in known_refs and not t.startswith("urn:cdx:"):
+                        unresolved.setdefault(f"{top}.{fld}", set()).add(t)
     source = {"format": "cyclonedx-json", "spec_version": _s(d.get("specVersion")), "generator": gen, "generator_version": gen_ver,
               "serial_number": _s(d.get("serialNumber")), "components_declared": declared, "components_nested": nested,
               "duplicates_merged": declared - len(dedup(comps)), "dependency_edges": len(edges),
-              "dangling_edges": len(dangling), "dangling_refs": dangling[:10],
+              "dangling_edges": len(unresolved.get("dependencies.dependsOn", ())), "dangling_refs": sorted(set().union(*unresolved.values()))[:10],
+              "dangling_by_field": {k: len(v) for k, v in sorted(unresolved.items())},
+              "bom_ref_repeated": len(repeated), "bom_ref_repeated_examples": [r[:200] for r in repeated[:3]],
               "dependencies_declared": len(deps), "component_types": dict(sorted(types.items())),
               "schema_check": schema_text}
     if components_absent:
@@ -1130,6 +1171,23 @@ def _spdx3_components(d: Dict[str, Any]) -> Tuple[List[SBOMComponent], str, str]
     return comps, depth, root_purpose
 
 
+def _spdx2_see_also(d: Dict[str, Any]) -> Dict[str, Any]:
+    """SPDX rule 7 (spec/SBOM_INGEST.md): each `hasExtractedLicensingInfos[i].seeAlsos[j]` against the RFC 3986 `URI`
+    rule. `not_a_url`: where and what the first value that is not one is ("" when none); `not_web`: how many values are
+    URIs whose scheme is not http/https; `examples`: the first three of those, each cut at 200 characters."""
+    out: Dict[str, Any] = {"not_a_url": "", "not_web": 0, "examples": []}
+    for i, e in enumerate(_lst(d.get("hasExtractedLicensingInfos"))):
+        for j, v in enumerate(_lst(e.get("seeAlsos")) if isinstance(e, dict) else []):
+            if not isinstance(v, str) or URI.fullmatch(v) is None:
+                if not out["not_a_url"]:
+                    out["not_a_url"] = f"hasExtractedLicensingInfos/{i}/seeAlsos/{j}: not a URL (RFC 3986 URI): {v!r}"
+            elif v.split(":", 1)[0].lower() not in ("http", "https"):
+                out["not_web"] += 1
+                if len(out["examples"]) < 3:
+                    out["examples"].append(v[:200])
+    return out
+
+
 def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
                    allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest an SPDX document: 2.2/2.3 JSON (`spdxVersion`, `packages`, `relationships`; DESCRIBES/DESCRIBED_BY
@@ -1146,15 +1204,21 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     if "spdxVersion" not in d and "@graph" not in d:
         raise ValueError("not an SPDX 2.x JSON (spdxVersion) nor an SPDX 3.0 JSON-LD (@graph) document")
     schema_state, schema_text = spdx_schema_check(d)       # rules 1-3: before anything is read from the document
+    spdx2 = str(d.get("spdxVersion", "")).startswith("SPDX-2")
+    see_also = _spdx2_see_also(d) if spdx2 else None
+    if schema_state == "conformant" and see_also and see_also["not_a_url"]:     # rule 7.1 (spec/SBOM_INGEST.md): §10.4, a URL
+        schema_state = "not_conformant"
+        schema_text = (f"not conformant to {d['spdxVersion']} §10.4 at {see_also['not_a_url']}")[:300]
     if schema_state in ("not_conformant", "unsupported") and not allow_nonconformant:
         raise ValueError("SPDX " + schema_text + " (--allow-nonconformant records it, never as floor met)")
-    if str(d.get("spdxVersion", "")).startswith("SPDX-2"):
+    if spdx2:
         comps, depth, root_purpose = _spdx2_components(d)
         pk = [x for x in _lst(d.get("packages")) if isinstance(x, dict)]
         rels = [r for r in _lst(d.get("relationships")) if isinstance(r, dict)]
         source = {"format": "spdx-json", "spec_version": _clean(d.get("spdxVersion")), "packages_declared": len(pk),
                   "packages_unnamed": sum(1 for x in pk if not _clean(x.get("name"))), "relationships_declared": len(rels),
-                  "dependency_edges": sum(1 for r in rels if str(r.get("relationshipType", "")).upper() in ("DEPENDS_ON", "DEPENDENCY_OF"))}
+                  "dependency_edges": sum(1 for r in rels if str(r.get("relationshipType", "")).upper() in ("DEPENDS_ON", "DEPENDENCY_OF")),
+                  "see_also_not_web": see_also["not_web"], "see_also_not_web_examples": see_also["examples"]}
     elif "@graph" in d:
         comps, depth, root_purpose = _spdx3_components(d)
         g = [e for e in _lst(d.get("@graph")) if isinstance(e, dict)]

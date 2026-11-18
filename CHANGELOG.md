@@ -2,6 +2,45 @@
 
 ## Unreleased (0.13.0)
 
+- **SBOMs from microsoft/sbom-tool are no longer refused; SPDX 2.2 and 2.3 are checked with the schemas SPDX corrected**
+  (`spec/SBOM_INGEST.md`, SPDX rule 6, written before the code; changes verdicts). 0.11.0 to 0.12.0 checked an SPDX-2.2
+  document with the schema of the tag `v2.2.2` of spdx/spdx-spec, which points at a 2.2.1-era commit (`a05c12a`, its
+  index reads "Version 2.2.1") whose `referenceCategory` enum is `OTHER`, `SECURITY`, `PACKAGE_MANAGER`, while §7.21 of
+  the text says `SECURITY | PACKAGE-MANAGER | PERSISTENT-ID | OTHER`. SPDX corrected the schema on `development/v2.2.2`
+  (spdx-spec#798, PR #836 merged 2023-03-10). Measured on 18/11/2026: the 4 SPDX 2.2 SBOMs of sbom-tool v4.1.5
+  (235 and 258 references, all `PACKAGE-MANAGER`) were refused 4 of 4; the corrected schema finds 0 errors in them. An
+  SPDX-2.2 document is now checked with `spdx-schema-v2.2.2-4694d1f.json` (head of `development/v2.2.2`: both spellings of
+  the categories, as SPDX's correction; as the text, `documentNamespace`, `creationInfo.creators`, a file's `checksums`
+  and `licenseInfoInFiles` and a snippet's `ranges` required, snippet `name` optional, relationship `AMENDS`), an SPDX-2.3
+  document with `spdx-schema-v2.3.1.json` (tag `v2.3.1`, the maintenance release the specification site serves under
+  `v2.3`; JSON Schema 2019-09): `primaryPackagePurpose: OPERATING-SYSTEM` (§7.24), refused by 0.12.0, is accepted and the
+  2.3 schema's `OPERATING_SYSTEM` refused; `PACKAGE_MANAGER`/`PERSISTENT_ID` are accepted; `documentNamespace`, the
+  `SPDXID`, checksum and date patterns are required. On 63 SPDX 2.3 documents (50 release SBOMs of 13 projects,
+  6 generator outputs of the September bench, 7 fixtures and controls of the tests) the verdict of 2.3 and 2.3.1 is the same for every one; on the 6 SPDX 2.2 documents only
+  the 4 of sbom-tool change (refused → accepted). `tests/data/sbom_tool_415/` keeps one of them (MIT).
+- **An SPDX 2.x `seeAlsos` value must be a URL** (SPDX rule 7; changes verdicts). §10.4 of the text: "Format: Uniform
+  Resource Locator", RFC 3986 a normative reference. A value that is not an RFC 3986 `URI` is not conformant (refused
+  with `SPDX not conformant to SPDX-2.3 §10.4 at hasExtractedLicensingInfos/<i>/seeAlsos/<j>: not a URL …`; recorded
+  with `--allow-nonconformant`, floor not met). A URL whose scheme is not http/https — Syft's `file://$GOPATH/pkg/mod/…`,
+  1,312 values in the measured documents, none of them refused — is reported in `source.see_also_not_web` with the first
+  three in `source.see_also_not_web_examples`. No measured release SBOM has a seeAlsos value that is not a URI.
+- **A CycloneDX 1.4–1.7 document that repeats a `bom-ref` is not conformant** (CycloneDX rule 5; changes verdicts). The
+  JSON schemas of 1.4–1.7 say every bom-ref "MUST"/"must be unique within the BOM", ECMA-424 (2nd edition, December
+  2025) "shall be unique" and lets a consumer raise an error on a non-conforming BOM; the XML schema of every version
+  1.2–1.7 declares it `xs:unique`; 0.12.0 recorded such a document as conformant, floor met. Refused with `CycloneDX not
+  conformant to bom-<v> (bom-ref unique within the BOM): '<value>' appears <n> times`; recorded with
+  `--allow-nonconformant`, floor not met. In 1.2–1.3, whose JSON text says only "should be unique", it is reported, not
+  refused: `source.bom_ref_repeated` (distinct repeated values) and `source.bom_ref_repeated_examples` (first three), in
+  every version. Refused now: the cdxgen 12.8.4 fixtures (cdxgen repeats its tool component as
+  `annotations[0].annotator.component`) and two `valid-*` JSON files of the official suite whose XML twins do not repeat
+  the value (`valid-formulation-1.5.json`, `valid-citations-1.7.json`; the suite checks its JSON files with the JSON
+  schema only, which cannot express uniqueness).
+- **Unresolved CycloneDX references are counted on every reference field** (CycloneDX rule 6; reported, not refused:
+  no requirement keyword and no `xs:keyref`). `source.dangling_by_field` counts the values of `dependencies[].ref`,
+  `dependsOn`, `provides` and `compositions[].assemblies`, `dependencies`, `vulnerabilities` that name no `bom-ref`;
+  `source.dangling_refs` lists the first ten of them; a BOM-Link (`urn:cdx:`) is not counted. The known identifiers are
+  those of every object: 0.12.0 knew only components and `metadata.component`, so an edge to a service was reported as
+  dangling.
 - **SECURITY.md and SUPPORT.md: no fixed response times.** The 72-hour acknowledgement and 14-day fix promises are
   replaced by "as soon as possible, with no SLA or fixed deadline": one maintainer, non-commercial, consistent with
   SIGNING.md.
@@ -53,10 +92,10 @@
   `THIRD_PARTY_NOTICES.md` now names the ENISA page kept as a fixture, the quoted EU acts and NIST IR 8547, the sbomify
   responses (sbomify is Apache-2.0 with the Commons Clause condition; the fixtures are its output on synthetic data)
   and the port from cryptovalid-opencore.
-- Full suite as the CI runs it: 613 tests on Python 3.9 and on 3.13 with the `sign` and `schema` extras and the
-  cryptovalid 0.15.0 wheel, OK, 2 skipped (a live feed and an install-only check), every test class run; without any
-  optional dependency, 613 tests, OK, 130 skipped (four of them new: the name test builds its names with `cryptography`,
-  and the three NIST boundary tests through `verify` need Ed25519).
+- Full suite (18/11/2026, locally, each test file of `tests/`): 631 tests on Python 3.9, 3.11 and 3.13 with jsonschema,
+  cryptography and cryptovalid installed, OK, 1 to 3 skipped depending on the machine; without any optional dependency
+  (Python 3.13), 631 tests, OK, 148 skipped.
+  Not yet run in the CI on this branch.
 
 ## 0.12.0 — 2026-11-16 — supply chain of the release measurable by third parties
 

@@ -23,8 +23,11 @@ v2.2.1"; the 2.2.2 edition was written afterwards on the branch `development/v2.
 `PACKAGE-MANAGER` | `PERSISTENT-ID` | `OTHER`". SPDX recorded the contradiction (spdx/spdx-spec#798, opened 2022-10-08,
 closed 2024-04-04 "now resolved") and corrected the schema on the branch (PR #836, merged 2023-03-10, commit
 `e3a5c7b`): `OTHER`, `PERSISTENT-ID`, `PERSISTENT_ID`, `SECURITY`, `PACKAGE-MANAGER`, `PACKAGE_MANAGER`. The head of
-the branch (`4694d1f`, 2025-10-10) also requires `documentNamespace` and no longer requires a snippet `name`, which is
-what the text says (§6.5 "Required: Yes"; §9.10 "Required: No", cardinality 0..1). We use that head. **Both spellings of the categories are
+the branch (`4694d1f`, 2025-10-10) differs from the tag's schema in more than the categories, each time as the text
+says: it requires `documentNamespace` (§6.5 "Required: Yes"), `creationInfo.creators` (§6.8, 1..*), a file's
+`checksums` (§8.4, SHA1 1..1) and `licenseInfoInFiles` (§8.6, 1..*), a snippet's `ranges` (§9.3, "Required: Yes"); it
+no longer requires a snippet `name` (§9.10 "Required: No", cardinality 0..1) and adds the relationship type `AMENDS`.
+An SPDX-2.2 document without one of the four newly required members is refused from 0.13.0. We use that head. **Both spellings of the categories are
 accepted because the SPDX project's corrected schema accepts both**; we do not narrow it to the text's spelling.
 
 Why SPDX 2.3 changes. 0.11.0 did not use `v2.3.1` ("no release"). On 18/11/2026: the tag exists, the repository's
@@ -35,7 +38,8 @@ CHANGELOG reads "2.3.1 (2026-10-30) — a maintenance release of V2.3", the spec
 the 2.3 text where 2.3.1 corrects it: `primaryPackagePurpose` `OPERATING_SYSTEM` (text §7.24: `OPERATING-SYSTEM`,
 which 0.12.0 refused) and `referenceCategory` (2.3.1 accepts `PERSISTENT_ID` and `PACKAGE_MANAGER` besides the text's
 spellings). 2.3.1 also requires `documentNamespace` (text §6.5: "Required: Yes") and adds patterns to `SPDXID`, `checksumValue` and the
-dates (text §6.9 "YYYY-MM-DDThh:mm:ssZ"; the leap second is accepted). A document written with the 2.3 schema's
+dates (text §6.9 "YYYY-MM-DDThh:mm:ssZ"; the leap second is accepted); it no longer requires a snippet `name` and allows a
+top-level `$schema` member. A document written with the 2.3 schema's
 `OPERATING_SYSTEM` is refused (the text never allowed it); `--allow-nonconformant` records it.
 
 ## SPDX rule 7 — license cross reference (`seeAlsos`), SPDX 2.2 and 2.3
@@ -59,21 +63,33 @@ SPDX 3 (`expandedlicensing_seeAlso`) is not read by this rule.
 
 ## CycloneDX rule 5 — `bom-ref` is unique within the BOM
 
-What CycloneDX says: the JSON schemas of 1.4 and 1.5 "Every bom-ref MUST be unique within the BOM", of 1.6 and 1.7
-"Every bom-ref must be unique within the BOM", of 1.2 and 1.3 "Every bom-ref should be unique"; the XML schema of every
-version, 1.2 to 1.7, declares `<xs:unique name="bom-ref">` with selector `.//*` and field `@bom-ref` — an XML BOM with
-a repeated `bom-ref` is invalid (CycloneDX/specification commit `6470e34`, the head of `master` on 18/11/2026). Our
-reading: the requirement is the same for JSON in every version, because the two serialisations are one specification
-and the XML schema is the project's machine-readable rule.
+What CycloneDX says, read on 18/11/2026: the JSON schemas of 1.4 and 1.5 "Every bom-ref MUST be unique within the BOM",
+of 1.6 and 1.7 "Every bom-ref must be unique within the BOM"; ECMA-424 (CycloneDX as an Ecma standard), 2nd edition
+(December 2025, the edition in force; its specVersion example is 1.7) "Every bom-ref shall be unique within the BOM"
+(1st edition, June 2024: "must"), and its clause 2 (Conformance) says a consumer "should instantiate a warning or error condition when a
+CycloneDX BOM is not conforming to this Standard". The JSON schemas of 1.2 and 1.3 say only "Every bom-ref should be
+unique"; the XML schema of every version, 1.2 to 1.7, declares `<xs:unique name="bom-ref">` with selector `.//*` and
+field `@bom-ref` (an XML BOM with a repeated `bom-ref` is invalid; CycloneDX/specification commit `6470e34`, the head of
+`master` on 18/11/2026). The official test suite's JSON harnesses (Java and JavaScript, same commit) check a JSON file
+with the JSON schema only, which cannot express uniqueness, so its `valid-*` JSON files say nothing on this rule.
+
+So: in a 1.4–1.7 document a repeated value is an error condition (the standard's own words, and ECMA-424 allows the
+error); in a 1.2–1.3 JSON document the JSON text says "should", the XML schema of the same version makes it a requirement
+for XML only, and — as for `patentAssertions` below — where two texts of CycloneDX disagree we take the one that accepts
+more: it is reported, not refused.
 
 The identifiers are the string values of every member named `bom-ref` of an object anywhere in the document, except
 in an item of a `patentAssertions` array — the 1.7 JSON schema describes that member as "A reference to the patent
 or patent family object within the BOM. This must match the `bom-ref` of a `patent` or `patentFamily` object", the 1.7
-XML schema as an identifier; with the two in contradiction it is not counted, which can only accept more. (A JSF
+XML schema as an identifier; with the two in contradiction it is not counted, which can only accept more (ECMA-424,
+2nd edition, reads it as the JSON schema does: "shall match the bom-ref of a patent or patentFamily object"). (A JSF
 `signature` cannot hold a `bom-ref` member in a document that passes the schema: `publicKey` refuses it.) Values are compared as exact strings. After the
-schema check passes, a value that appears more than once makes the document **not conformant**: refused with
+schema check passes, a value that appears more than once makes a 1.4–1.7 document **not conformant**: refused with
 `CycloneDX not conformant to bom-<v> (bom-ref unique within the BOM): '<value>' appears <n> times`, nothing recorded;
-with `--allow-nonconformant` recorded with that text in `source.schema_check`, floor not met.
+with `--allow-nonconformant` recorded with that text in `source.schema_check`, floor not met. In every version
+`source.bom_ref_repeated` counts the distinct values that appear more than once and `source.bom_ref_repeated_examples`
+gives the first three (document order, each cut at 200 characters); a 1.2–1.3 document is recorded with them, floor
+unaffected.
 
 Known consequences, measured on 18/11/2026: two `valid-*` JSON files of the official test suite repeat a `bom-ref`
 whose XML twin does not (`valid-formulation-1.5.json`: `workspace-1` twice, the XML file has `workspace-2`;
@@ -84,9 +100,10 @@ refused. cdxgen 12.8.4 writes its own tool component again as `annotations[0].an
 ## CycloneDX rule 6 — references that do not resolve are reported
 
 `refLinkType` (1.5–1.7): "Descriptor for an element identified by the attribute 'bom-ref' in the same BOM document";
-in 1.2–1.4 a dependency's `ref` "References a component by the components bom-ref attribute". Neither text has a
-requirement keyword and the XML schemas have no `xs:keyref`, so a reference to no element is **reported, not
-refused**. Read: `dependencies[].ref`, `dependencies[].dependsOn[]`, `dependencies[].provides[]`,
+in 1.2–1.4 a dependency's `ref` "References a component by the components bom-ref attribute". Neither text, nor
+ECMA-424 for these fields, has a requirement keyword and the XML schemas have no `xs:keyref`, so a reference to no
+element is **reported, not refused**. (ECMA-424 does say a patent assertion's `bom-ref` "shall match the bom-ref of a
+patent or patentFamily object"; that field is not read by this rule.) Read: `dependencies[].ref`, `dependencies[].dependsOn[]`, `dependencies[].provides[]`,
 `compositions[].assemblies[]`, `compositions[].dependencies[]`, `compositions[].vulnerabilities[]`; a string matching
 the BOM-Link form `urn:cdx:` points into another BOM and is not counted. The known identifiers are those of rule 5, of
 every kind of object (0.12.0 knew only `components` and `metadata.component`, so an edge to a service was reported as

@@ -58,7 +58,7 @@ class TestVendoredSchemas(unittest.TestCase):
         with open(os.path.join(DATA, "SOURCES.txt"), encoding="utf-8") as f:
             lines = f.read().splitlines()
         want = {ln.split()[1]: ln.split()[0] for ln in lines if len(ln) > 66 and ln[64:66] == "  "}
-        self.assertEqual(set(want), {"spdx-schema-v2.2.2.json", "spdx-schema-v2.3.json", "spdx-json-schema-3.0.1.json",
+        self.assertEqual(set(want), {"spdx-schema-v2.2.2-4694d1f.json", "spdx-schema-v2.3.1.json", "spdx-json-schema-3.0.1.json",
                                      "LICENSE-CC-BY-3.0", "LICENSE-Community-Spec-1.0"})
         for name, h in want.items():
             with open(os.path.join(DATA, name), "rb") as f:
@@ -70,7 +70,7 @@ class TestVendoredSchemas(unittest.TestCase):
             if isinstance(o, dict):
                 return ([o["format"]] if isinstance(o.get("format"), str) else []) + [x for v in o.values() for x in formats(v)]
             return [x for v in o for x in formats(v)] if isinstance(o, list) else []
-        for name in ("spdx-schema-v2.2.2.json", "spdx-schema-v2.3.json", "spdx-json-schema-3.0.1.json"):
+        for name in ("spdx-schema-v2.2.2-4694d1f.json", "spdx-schema-v2.3.1.json", "spdx-json-schema-3.0.1.json"):
             with open(os.path.join(DATA, name), encoding="utf-8") as f:
                 self.assertEqual(formats(json.load(f)), [], name)
         self.assertEqual(formats({"a": [{"format": "uri"}]}), ["uri"])     # positive control of the walker
@@ -83,8 +83,8 @@ class TestVendoredSchemas(unittest.TestCase):
 @NEEDS
 class TestControls(unittest.TestCase):
     def test_conformant_documents_are_recorded_floor_met(self):
-        for name, schema in (("tools-java_SPDXJSONExample-v2.2.spdx.json", "spdx-schema-v2.2.2.json"),
-                             ("tools-java_SPDXJSONExample-v2.3.spdx.json", "spdx-schema-v2.3.json"),
+        for name, schema in (("tools-java_SPDXJSONExample-v2.2.spdx.json", "spdx-schema-v2.2.2-4694d1f.json"),
+                             ("tools-java_SPDXJSONExample-v2.3.spdx.json", "spdx-schema-v2.3.1.json"),
                              ("tools-java_SPDXJsonLDExample-v3.0.1.json", "spdx-json-schema-3.0.1.json")):
             rec, e = record(ctl(name))
             self.assertEqual(rec.source["schema_check"], "conformant to " + schema, name)
@@ -96,9 +96,9 @@ class TestControls(unittest.TestCase):
             self.assertTrue(e["data"]["sbom_floor_met"], name)
 
     def test_documents_their_authors_call_invalid_are_refused(self):
-        for name, where in (("tools-java_BadJSON.spdx.json", "spdx-schema-v2.2.2.json at packages/0"),
-                            ("sbomqs_spdx-no-timestamp.json", "spdx-schema-v2.3.json at creationInfo"),
-                            ("sbomqs_spdx-no-authors.json", "spdx-schema-v2.3.json at creationInfo/creators")):
+        for name, where in (("tools-java_BadJSON.spdx.json", "spdx-schema-v2.2.2-4694d1f.json at packages/0"),
+                            ("sbomqs_spdx-no-timestamp.json", "spdx-schema-v2.3.1.json at creationInfo"),
+                            ("sbomqs_spdx-no-authors.json", "spdx-schema-v2.3.1.json at creationInfo/creators")):
             with self.assertRaises(ValueError) as cm:
                 sbom_from_spdx(ctl(name), "p", "1")
             self.assertIn("SPDX not conformant to " + where, str(cm.exception), name)
@@ -141,7 +141,7 @@ class TestControls(unittest.TestCase):
                 d = json.load(f)
             d["packages"][0]["primaryPackagePurpose"] = "X" * 1000
             rec, _ = record(write(tmp, d), allow=True, tmp=tmp)
-            self.assertTrue(rec.source["schema_check"].startswith("not conformant to spdx-schema-v2.3.json at packages/0"))
+            self.assertTrue(rec.source["schema_check"].startswith("not conformant to spdx-schema-v2.3.1.json at packages/0"))
             self.assertEqual(len(rec.source["schema_check"]), 300)
             with open(ctl("tools-java_SPDXJsonLDExample-v3.0.1.json"), encoding="utf-8") as f:
                 d = json.load(f)
@@ -195,7 +195,7 @@ class TestControls(unittest.TestCase):
     def test_a_forged_schema_check_is_refused(self):
         p = ctl("sbomqs_spdx-no-timestamp.json")
         rec = sbom_from_spdx(p, "p", "1", allow_nonconformant=True)
-        rec.source["schema_check"] = "conformant to spdx-schema-v2.3.json"
+        rec.source["schema_check"] = "conformant to spdx-schema-v2.3.1.json"
         with tempfile.TemporaryDirectory() as tmp:
             lk = EvidenceLocker(os.path.join(tmp, "l.jsonl"), "p", "1")
             with self.assertRaises(ValueError):
@@ -224,7 +224,12 @@ class TestGenerative(unittest.TestCase):
 
     def oracle(self, d, name, cls):
         with open(os.path.join(DATA, name), encoding="utf-8") as f:
-            return cls(json.load(f)).is_valid(d)
+            valid = cls(json.load(f)).is_valid(d)
+        # SPDX rule 7 (spec/SBOM_INGEST.md, 0.13.0): a 2.x seeAlsos value must also be an RFC 3986 URI (§10.4); the
+        # regular expression is tested on its own in test_sbom_ingest_20261118.py
+        see_also = [v for e in (d.get("hasExtractedLicensingInfos") or []) if isinstance(e, dict)
+                    for v in (e.get("seeAlsos") or [])] if valid and "spdxVersion" in d else []
+        return valid and all(isinstance(v, str) and S.URI.fullmatch(v) for v in see_also)
 
     def paths(self, o, at=()):
         yield at, o
@@ -257,8 +262,8 @@ class TestGenerative(unittest.TestCase):
     def test_ingest_agrees_with_the_schema(self):
         import jsonschema
         rnd = random.Random(20261115)
-        cases = (("tools-java_SPDXJSONExample-v2.3.spdx.json", "spdx-schema-v2.3.json", jsonschema.Draft7Validator),
-                 ("tools-java_SPDXJSONExample-v2.2.spdx.json", "spdx-schema-v2.2.2.json", jsonschema.Draft7Validator),
+        cases = (("tools-java_SPDXJSONExample-v2.3.spdx.json", "spdx-schema-v2.3.1.json", jsonschema.Draft201909Validator),
+                 ("tools-java_SPDXJSONExample-v2.2.spdx.json", "spdx-schema-v2.2.2-4694d1f.json", jsonschema.Draft7Validator),
                  ("tools-java_SPDXJsonLDExample-v3.0.1.json", "spdx-json-schema-3.0.1.json", jsonschema.Draft202012Validator))
         seen = {True: 0, False: 0}
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,7 +306,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual((p.returncode, written), (2, False), p.stderr)
         p, written = self.run_cra("--from-spdx", ctl("tools-java_BadJSON.spdx.json"), "--allow-nonconformant")
         self.assertEqual((p.returncode, written), (1, True), p.stderr)
-        self.assertTrue(json.loads(p.stdout)["source"]["schema_check"].startswith("not conformant to spdx-schema-v2.2.2.json"))
+        self.assertTrue(json.loads(p.stdout)["source"]["schema_check"].startswith("not conformant to spdx-schema-v2.2.2-4694d1f.json"))
         p, written = self.run_cra("--from-spdx", ctl("tools-java_SPDXJSONExample-v2.3.spdx.json"))
         self.assertEqual((p.returncode, written), (0, True), p.stderr)
         p, _ = self.run_cra("--installed", "--allow-nonconformant")

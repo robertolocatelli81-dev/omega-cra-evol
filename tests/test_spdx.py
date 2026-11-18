@@ -104,7 +104,7 @@ class TestSPDXCouncil(unittest.TestCase):
         rec = sbom_from_spdx(src, "p", "1")
         e = lk.record_sbom(rec, source_path=src)
         if not rec.source["schema_check"].startswith("not checked"):     # without jsonschema the floor is unmet anyway
-            self.assertEqual(rec.source["schema_check"], "conformant to spdx-schema-v2.3.json")
+            self.assertEqual(rec.source["schema_check"], "conformant to spdx-schema-v2.3.1.json")
         self.assertFalse(e["data"]["sbom_floor_met"])
         doc["packages"][0]["versionInfo"] = "1.0"                        # control: a real version meets it
         src = self._w(doc)

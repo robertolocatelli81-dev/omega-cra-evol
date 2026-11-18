@@ -1,0 +1,5 @@
+microsoft/sbom-tool, release v4.1.5 (published 2025-12-15T21:40:14Z), asset linux-x64-manifest.spdx.json, unmodified.
+The asset's sha256 is the digest the GitHub API gives for it (fetched 18/11/2026). The document is the SBOM of
+sbom-tool itself (SPDX 2.2, written by Microsoft.SBOMTool 4.1.4); the project is MIT (LICENSE: the repository's
+LICENSE on main, read 18/11/2026).
+e1671f50e6804a0d5e72b8a97b872866da1b7e532c9c485f88575e82cb2cc21f  linux-x64-manifest.spdx.json

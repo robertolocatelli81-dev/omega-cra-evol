@@ -1,9 +1,9 @@
-Official SPDX JSON schemas, copied unmodified (fetched 15/11/2026).
-spdx-schema-v2.2.2.json  spdx/spdx-spec tag v2.2.2, commit a05c12a2dd4652b1396fd2659f2cd3ea1f37faba, schemas/spdx-schema.json — CC-BY-3.0 (LICENSE-CC-BY-3.0: the LICENSE of that commit, the same bytes as at v2.3)
-spdx-schema-v2.3.json    spdx/spdx-spec tag v2.3, commit aadf3b0b8dbbabdb4d880b0fc714255fea436ff7, schemas/spdx-schema.json — CC-BY-3.0 (LICENSE-CC-BY-3.0)
+Official SPDX JSON schemas, copied unmodified (2.2 and 2.3 fetched 18/11/2026, 3.0.1 fetched 15/11/2026 and unchanged on 18/11/2026).
+spdx-schema-v2.2.2-4694d1f.json  spdx/spdx-spec branch development/v2.2.2, commit 4694d1fe63ecd269262c26bd4370d4e11e6f7f8f (2025-10-10, the head of the branch on 18/11/2026), schemas/spdx-schema.json; it holds the referenceCategory correction of PR #836 (commit e3a5c7bb395c7c8b4bb55e7eaf9cb42661de9872) — CC-BY-3.0 (LICENSE-CC-BY-3.0: the LICENSE of that commit, the same bytes as at v2.2.2 and v2.3.1)
+spdx-schema-v2.3.1.json  spdx/spdx-spec tag v2.3.1, commit 6f2cb47d13db19b12c23885573b22ef32ec1ada5, schemas/spdx-schema.json — CC-BY-3.0 (LICENSE-CC-BY-3.0)
 spdx-json-schema-3.0.1.json  https://spdx.org/schema/3.0.1/spdx-json-schema.json (the URL named by the SPDX 3.0.1 specification, Serializations; Last-Modified: Fri, 21 Nov 2025 22:44:05 GMT, ETag "070d0ed88e6c8ad25ac723850995b4de") — Community-Spec-1.0, earlier portions CC-BY-3.0 (LICENSE-Community-Spec-1.0: the LICENSE of spdx/spdx-spec branch support/3.0, commit 34217620f03dac43fbe00b717c13fc3f4505a6bb)
-c8328d14c33621a6be917569ad4c323d370220412edbaddc37ccf1e93e3ca88a  spdx-schema-v2.2.2.json
-239208b7ac287b3cf5d9a9af23f9d69863971102a5e1587a27a398b43490b89b  spdx-schema-v2.3.json
+d791e3ccafef821121867eb46aaeaaf7c81b0decf828a785bed1f588181569af  spdx-schema-v2.2.2-4694d1f.json
+4126dc29f15e92feec92e9622f4939131ad58b125d6f578aa93e980a6e6f3212  spdx-schema-v2.3.1.json
 582c64e809d5b3ef9bd0c4de13a32391b47b0284a3e8d199569fb96f649234b1  spdx-json-schema-3.0.1.json
 017e38491cccbd2bdb6da0a32a33db9ec245b5dab30fdcd09f2c742c975e5b35  LICENSE-CC-BY-3.0
 8b9e88199429dc9fc3c87604bdb9008c640829a3b5f6b8bd40ba3d0e8b5ca987  LICENSE-Community-Spec-1.0
