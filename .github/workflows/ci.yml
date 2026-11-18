@@ -33,8 +33,9 @@ jobs:
           assert not seen("NoSuchTestClassXYZ"), "positive control: a fake class name must not match"
           for f in glob.glob("tests/test_*.py"):
               for node in ast.parse(open(f).read()).body:
-                  if isinstance(node, ast.ClassDef) and any(isinstance(b, ast.Attribute) and b.attr == "TestCase" for b in node.bases):
-                      assert seen(node.name), f"{f}:{node.name} did not run"
+                  if isinstance(node, ast.ClassDef) and any(isinstance(b, ast.Attribute) and b.attr == "TestCase" for b in node.bases) \
+                          and any(isinstance(m, ast.FunctionDef) and m.name.startswith("test") for m in node.body):
+                      assert seen(node.name), f"{f}:{node.name} did not run"   # 18/11/2026: a base class with no test of its own runs nothing
           print("every TestCase class ran")
           PY
       - name: Gate — a tampered pack MUST fail, an intact one MUST pass (exit codes)
