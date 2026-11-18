@@ -161,7 +161,7 @@ longterm.Signer.sign(self, msg: bytes) -> str
 longterm.register_algorithm(name: str, gen: Callable, sign: Callable, verify: Callable) -> None
 longterm.register_hash(name: str, ctor: Callable) -> None
 notice_check.MAX_DROP_BYTES: const
-notice_check.check_notice(drop_path: str, ledger_path: Optional[str]=None) -> Dict[str, Any]
+notice_check.check_notice(drop_path: str, ledger_path: Optional[str]=None, raw: Optional[bytes]=None) -> Dict[str, Any]
 notice_check.load_json_object(path: str, cap: int=MAX_DROP_BYTES) -> Dict[str, Any]
 outputs.OutputNotWritten: class(OSError)
 outputs.TipNotWritten: class(OutputNotWritten)

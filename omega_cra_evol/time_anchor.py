@@ -32,7 +32,8 @@ from .rfc3161_token import (OID_SHA256, OID_SHA3_256, TokenRefused, _children, _
 
 REASONS = ("record_not_in_chain", "ts_source_not_rfc3161", "digest_only_binding", "anchor_unknown", "unknown_field",
            "token_missing", "token_not_base64", "token_malformed", "imprint_mismatch", "t_not_gen_time",
-           "signature_invalid", "not_issued_by_pinned_tsa", "token_sha3_mismatch")
+           "signature_invalid", "not_issued_by_pinned_tsa", "token_sha3_mismatch",
+           "signer_certificate_absent")   # spec §5 step 7, 0.13.0 (18/11/2026): not evaluated, logged with "ok": None
 # spec/TIME_ANCHOR.md §2, §5 step 3: the fields an anchored record may carry (closed: anything else is refused)
 _RECORD_FIELDS = frozenset(("alg", "anchor", "ephemeral_key", "hash", "pub", "rehash", "sig", "t", "token_b64", "token_sha3",
                            "ts_source"))
@@ -270,10 +271,148 @@ def _pem(der: bytes) -> bytes:
     return b"-----BEGIN CERTIFICATE-----\n" + base64.encodebytes(der) + b"-----END CERTIFICATE-----\n"
 
 
+def _pem_ders(pem: bytes) -> List[bytes]:
+    return [_pem_block_der(bl) for bl in pem.split(b"-----BEGIN CERTIFICATE-----")[1:]]
+
+
+def _issuer_serial(der: bytes) -> tuple:
+    """(issuer Name TLV, serial number as an integer) of a DER certificate"""
+    tbs = _items(_items(_one(der, 0x30))[0][1])
+    k = 1 if tbs[0][0] == 0xA0 else 0
+    if tbs[k][0] != 0x02 or tbs[k + 2][0] != 0x30:
+        raise TokenRefused("certificate serialNumber or issuer not read")
+    return _tlv(0x30, tbs[k + 2][1]), int.from_bytes(tbs[k][1], "big", signed=True)
+
+
+def _ess_names(isr: tuple, der: bytes) -> bool:
+    issuer, serial = _issuer_serial(der)
+    return _names_equal(isr[0], issuer) and isr[1] == serial
+
+
+def _ess_cert_ids(o: str, certs: bytes) -> Union[str, List[tuple]]:
+    """the ESSCertID(v2)s of one attribute, closed: [(hash algorithm, certHash, (issuer Name TLV, serial) or None)], or why
+    not (spec §5 step 8 (a), 0.13.0: RFC 2634 §5.4, RFC 5035 §3; ported from cryptovalid-opencore SPEC §11 step 7 v0.11)"""
+    ids = _items(certs)
+    if not ids:
+        return f"ESS attribute {o}: no ESSCertID"
+    out: List[tuple] = []
+    for n, (t, v) in enumerate(ids, 1):
+        if t != 0x30:
+            return f"ESS attribute {o}: ESSCertID {n} is not a SEQUENCE"
+        cid = _items(v)
+        alg: Optional[str] = "sha1"
+        if o == _OID_SIGNING_CERTIFICATE_V2:
+            alg = "sha256"
+            if cid and cid[0][0] == 0x30:
+                ai = _items(cid[0][1])
+                alg = _ESS_HASHES.get(_oid_of(ai[0][1])) if ai and ai[0][0] == 0x06 else None
+                if alg is None or not (len(ai) == 1 or (len(ai) == 2 and ai[1] == (0x05, b""))):
+                    return f"ESSCertIDv2 {n}: hash algorithm not known"
+                cid = cid[1:]
+        if not cid or cid[0][0] != 0x04 or len(cid) > 2 or (len(cid) == 2 and cid[1][0] != 0x30):
+            return f"ESSCertID {n}: not {{certHash, issuerSerial?}}"
+        if len(cid[0][1]) != hashlib.new(alg).digest_size:
+            return f"ESSCertID {n}: certHash is not {alg}-long"
+        isr = None
+        if len(cid) == 2:
+            iss = _items(cid[1][1])
+            names = _items(_one(_tlv(0x30, iss[0][1]), 0x30)) if iss and iss[0][0] == 0x30 else None
+            if not (len(iss) == 2 and iss[1][0] == 0x02 and names is not None and len(names) == 1
+                    and names[0][0] == 0xA4):
+                return f"ESSCertID {n}: issuerSerial is not {{one directoryName, serialNumber}}"
+            isr = (names[0][1], int.from_bytes(iss[1][1], "big", signed=True))
+        if any(alg == a and cid[0][1] == h for a, h, _ in out):   # closed: a certificate listed twice is refused
+            return f"ESSCertID {n}: the same certificate hash as an earlier ESSCertID"
+        out.append((alg, cid[0][1], isr))
+    return out
+
+
+def _ess_lists_more_than_one(token_der: bytes) -> bool:
+    """spec §5 step 8 (0.13.0): a signingCertificate(V2) attribute of the SignerInfo lists more than one ESSCertID.
+    Anything not read here answers False (the route of `ts -verify`)."""
+    try:
+        sis = _signer_infos(token_der)
+        si = _items(sis[0][1])
+        for t, av in _items(si[3][1]) if si[3][0] == 0xA0 else []:
+            a = _items(av) if t == 0x30 else []
+            if len(a) != 2 or a[0][0] != 0x06 or a[1][0] != 0x31:
+                continue
+            if _oid_of(a[0][1]) not in (_OID_SIGNING_CERTIFICATE, _OID_SIGNING_CERTIFICATE_V2):
+                continue
+            for t2, v in _items(a[1][1]):
+                sc = _items(v) if t2 == 0x30 else []
+                if sc and sc[0][0] == 0x30 and len(_items(sc[0][1])) > 1:
+                    return True
+        return False
+    except (TokenRefused, IndexError, ValueError):
+        return False
+
+
+_SIGNER_NOT_FOUND = b"signer certificate not found"   # OpenSSL CMS_R_SIGNER_CERTIFICATE_NOT_FOUND (CMS_verify)
+
+
+def _signer_certificate_absent(token_der: bytes, pins_pem: bytes) -> bool:
+    """spec §5 step 7 (0.13.0): True only when every certificate of the token and every pinned one was read and none is
+    the one the SignerInfo's sid names (issuerAndSerialNumber: issuer as X509_NAME_cmp, serial as an integer;
+    subjectKeyIdentifier: the certificate's subjectKeyIdentifier extension). Anything not read answers False: the
+    absence is never presumed. Ported from cryptovalid-opencore SPEC §11 step 6 (v0.11)."""
+    try:
+        sis = _signer_infos(token_der)
+        if len(sis) != 1 or sis[0][0] != 0x30:
+            return False
+        sid = _items(sis[0][1])[1]
+        certs: List[bytes] = []
+        for tag, val in _signed_data(token_der)[3:-1]:
+            if tag == 0xA0:
+                for t, v in _items(val):
+                    if t != 0x30:                      # another CertificateChoices: not read here
+                        return False
+                    certs.append(_tlv(t, v))
+        pinned = _pem_ders(pins_pem)
+        if pins_pem.count(b"-----BEGIN") != len(pinned) or not all(pinned):
+            return False
+        certs += pinned
+        if sid[0] == 0x30:
+            ias = _items(sid[1])
+            if len(ias) != 2 or ias[0][0] != 0x30 or ias[1][0] != 0x02:
+                return False
+            want_issuer = _name_canon(_tlv(0x30, ias[0][1]))   # raises on a Name not read: absence not presumed
+            want_serial = int.from_bytes(ias[1][1], "big", signed=True)
+        elif sid[0] == 0x80:
+            want_ski = sid[1]
+        else:
+            return False
+        for der in certs:
+            cert = _items(_one(der, 0x30))
+            tbs = _items(cert[0][1])
+            k = 1 if tbs[0][0] == 0xA0 else 0
+            if tbs[k][0] != 0x02 or tbs[k + 2][0] != 0x30 or tbs[k + 5][0] != 0x30:
+                return False
+            if sid[0] == 0x30:
+                if _name_canon(_tlv(0x30, tbs[k + 2][1])) == want_issuer and \
+                        int.from_bytes(tbs[k][1], "big", signed=True) == want_serial:
+                    return False
+                continue
+            for t, v in tbs[k + 6:]:
+                if t != 0xA3:
+                    continue
+                for et, ev in _items(_one(v, 0x30)):
+                    ext = _items(ev) if et == 0x30 else []
+                    if not ext or ext[0][0] != 0x06:
+                        return False
+                    if _oid_of(ext[0][1]) == "2.5.29.14" and ext[-1][0] == 0x04 and _one(ext[-1][1], 0x04) == want_ski:
+                        return False
+        return True
+    except (TokenRefused, IndexError, ValueError):
+        return False
+
+
 def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int, tmp: str,
                    timeout: float = 30.0) -> Optional[str]:
-    """spec §5 step 8 for a signer named by subjectKeyIdentifier: None when the token is established under the pinned
-    certificates, else why not. One SignerInfo with signed attributes; (a) ESS signing-certificate attribute(s), (b) the
+    """spec §5 step 8 for a signer named by subjectKeyIdentifier, and (0.13.0) for any signer whose signing-certificate
+    attribute lists more than one ESSCertID: None when the token is established under the pinned certificates, else why
+    not. One SignerInfo with signed attributes; (a) ESS signing-certificate attribute(s): the first ESSCertID is the
+    signer certificate, the ones after it limit the token's certificates the path may use, (b) the
     `tsa` field, (c) openssl verify with the timestampsign purpose, the chain to a pinned certificate and the validity
     at genTime, no system store."""
     try:
@@ -289,7 +428,7 @@ def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int
         cert = _items(_one(signer_der, 0x30))
         tbs = _items(cert[0][1])
         k = 1 if tbs[0][0] == 0xA0 else 0
-        serial, issuer, subject = tbs[k][1], _tlv(0x30, tbs[k + 2][1]), _tlv(0x30, tbs[k + 4][1])
+        subject = _tlv(0x30, tbs[k + 4][1])
         san: List[bytes] = []
         for tag, v in tbs[k + 6:]:
             if tag == 0xA3:
@@ -307,6 +446,9 @@ def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int
         found = [o for o in (_OID_SIGNING_CERTIFICATE, _OID_SIGNING_CERTIFICATE_V2) if o in attrs]
         if not found:
             return "no signingCertificate or signingCertificateV2 attribute (ESS)"
+        token_certs = _token_certificates(token_der)
+        pool = token_certs + _pem_ders(pins_pem)
+        allowed: Optional[set] = None   # None: no attribute limits the path (one ESSCertID each)
         for o in found:
             vals = attrs[o]
             if len(vals) != 1 or len(_items(vals[0])) != 1:
@@ -314,32 +456,23 @@ def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int
             sc = _items(_one(vals[0], 0x30))   # SigningCertificate(V2) ::= SEQUENCE { certs SEQUENCE OF, policies OPTIONAL }
             if not 1 <= len(sc) <= 2 or sc[0][0] != 0x30 or (len(sc) == 2 and not _policies_shape(sc[1])):
                 return f"ESS attribute {o}: not {{certs, policies?}}"
-            ids = _items(sc[0][1])
-            if len(ids) != 1:
-                return f"ESS attribute {o}: {len(ids)} ESSCertIDs (exactly one is evaluated here)"
-            if ids[0][0] != 0x30:
-                return "ESSCertID: not a SEQUENCE"
-            cid = _items(ids[0][1])
-            alg: Optional[str] = "sha1"
-            if o == _OID_SIGNING_CERTIFICATE_V2:
-                alg = "sha256"
-                if cid and cid[0][0] == 0x30:
-                    ai = _items(cid[0][1])
-                    alg = _ESS_HASHES.get(_oid_of(ai[0][1]))
-                    if alg is None or not (len(ai) == 1 or (len(ai) == 2 and ai[1] == (0x05, b""))):
-                        return "ESSCertIDv2: hash algorithm not known"
-                    cid = cid[1:]
-            if not cid or cid[0][0] != 0x04 or len(cid) > 2 or (len(cid) == 2 and cid[1][0] != 0x30):
-                return "ESSCertID: not {certHash, issuerSerial?}"
-            if cid[0][1] != hashlib.new(alg, signer_der).digest():
+            ids = _ess_cert_ids(o, sc[0][1])
+            if isinstance(ids, str):
+                return ids
+            alg, h, isr = ids[0]            # RFC 2634 §5.4, RFC 5035 §3: the first is the signer certificate
+            if h != hashlib.new(alg, signer_der).digest():
                 return "ESS certHash is not the hash of the signer certificate"
-            if len(cid) == 2:
-                iss = _items(cid[1][1])
-                names = _items(_one(_tlv(0x30, iss[0][1]), 0x30)) if iss and iss[0][0] == 0x30 else None
-                if not (len(iss) == 2 and iss[1][0] == 0x02 and names is not None and len(names) == 1
-                        and names[0][0] == 0xA4 and _names_equal(names[0][1], issuer)
-                        and int.from_bytes(iss[1][1], "big", signed=True) == int.from_bytes(serial, "big", signed=True)):
-                    return "ESS issuerSerial does not name the signer certificate's issuer and serial number"
+            if isr is not None and not _ess_names(isr, signer_der):
+                return "ESS issuerSerial does not name the signer certificate's issuer and serial number"
+            if len(ids) > 1:                # the ones after it "limit the set of certificates" (spec §5 step 8, 0.13.0)
+                ok = {signer_der}
+                for n, (alg, h, isr) in enumerate(ids[1:], 2):
+                    for c in pool:
+                        if hashlib.new(alg, c).digest() == h:
+                            if isr is not None and not _ess_names(isr, c):
+                                return f"ESSCertID {n}: issuerSerial does not name the certificate whose hash it carries"
+                            ok.add(c)
+                allowed = ok if allowed is None else allowed & ok
         # (b) the tsa field
         tsa = [v for tag, v in tst[5:] if tag == 0xA0]
         if tsa:   # ts_check_signer_name: the subject (a directoryName), then each name of the subjectAltName
@@ -352,7 +485,7 @@ def _key_id_anchor(token_der: bytes, signer_der: bytes, pins_pem: bytes, at: int
     # (c) chain, purpose, validity at genTime: the OpenSSL chain building of ts -verify, no system store
     sp, cp, up = (os.path.join(tmp, n) for n in ("ski_signer.pem", "ski_pinned.pem", "ski_untrusted.pem"))
     for path, data in ((sp, _pem(signer_der)), (cp, pins_pem),
-                       (up, pins_pem + b"".join(_pem(c) for c in _token_certificates(token_der)))):
+                       (up, pins_pem + b"".join(_pem(c) for c in token_certs if allowed is None or c in allowed))):
         with open(path, "wb") as f:
             f.write(data)
     p = _openssl(["verify", "-purpose", "timestampsign", "-partial_chain", "-attime", str(at), "-CAfile", cp,
@@ -423,9 +556,19 @@ def make_timestamp_trust_fn(lte: LongTermEvidence, tsa_certs: Sequence[Union[str
             p = _openssl(["cms", "-verify", "-noverify", "-inform", "DER", "-in", tp, "-binary", "-certfile", cp,
                           "-signer", sp, "-out", os.devnull], timeout)
             if p.returncode != 0:
-                return no("signature_invalid", (p.stderr or b"").decode("utf-8", "replace").strip()[-200:])
+                err = p.stderr or b""
+                # §5 step 7 (0.13.0): not evaluated when openssl stopped at the signer lookup AND the sid names no
+                # certificate read here (a token openssl cannot parse stays signature_invalid: ETSI EN 319 102-1 §5.3.4)
+                if _SIGNER_NOT_FOUND in err and _signer_certificate_absent(der, pins):
+                    log.append({"ok": None, "reason": "signer_certificate_absent",
+                                "detail": "signature not evaluated: the certificate the SignerInfo names is neither in the "
+                                          "token nor pinned (pin the TSA certificate; ETSI EN 319 102-1 §5.2.3.3)"})
+                    return False
+                return no("signature_invalid", err.decode("utf-8", "replace").strip()[-200:])
             at = int(gen_time_seconds(gen))
-            if _signer_named_by_key_id(der):   # §5 step 8, subjectKeyIdentifier: openssl ts cannot read this SignerInfo
+            # §5 step 8: subjectKeyIdentifier, which openssl ts cannot read; more than one ESSCertID (0.13.0), where
+            # openssl ts asks every ESSCertID to be in the chain it built, which RFC 2634 §5.4 / RFC 5035 do not ask
+            if _signer_named_by_key_id(der) or _ess_lists_more_than_one(der):
                 signer = []
                 if os.path.isfile(sp):
                     with open(sp, "rb") as f:

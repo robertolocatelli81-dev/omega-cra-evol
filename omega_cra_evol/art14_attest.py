@@ -535,6 +535,23 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
     except ImportError:
         Ed25519PublicKey = None
     msg = pae(PAYLOAD_TYPE, payload)
+    # §5 (18/11/2026): the trust store is checked WHOLE before any signature. One broken key (not 64 lower-case hex,
+    # small order or non-canonical, not a string, a name that is not a string) refuses the store, each one named; no key
+    # is tried and none is skipped. 0.12.0 checked a key only when a signature tried it: the verdict depended on the
+    # keyid and on the alphabetical order of the names.
+    store_codes: List[str] = []
+    if not isinstance(trust_store, dict):
+        store_codes.append("trusted_key_malformed")
+        _r(reasons, "trusted_key_malformed", "the trust store is not an object of signer id -> public key hex")
+    else:
+        for name in sorted(trust_store, key=lambda n: (type(n).__name__, str(n))):
+            pub = trust_store[name]
+            if not isinstance(name, str) or not isinstance(pub, str) or not _HEX64.fullmatch(pub):
+                store_codes.append("trusted_key_malformed")
+                _r(reasons, "trusted_key_malformed", f"trust store key of {str(name)[:80]!r}: 64 lower-case hex required")
+            elif weak_ed25519_key(pub):
+                store_codes.append("weak_key")
+                _r(reasons, "weak_key", f"trust store key of {name[:80]!r}: small order or non-canonical Ed25519 key, refused")
     trusted_by = []
     # §5: every signature that does not verify and every keyid absent from the trust store is LISTED; they do not refuse
     # a statement that another signature makes trusted (keyid selects a candidate key only, DSSE protocol.md)
@@ -557,6 +574,9 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
             continue
         # a keyid narrows the keys tried to the one it names; unset or empty (DSSE envelope.md: the same) is no hint, and
         # every key of the trust store is tried (DSSE protocol.md: the keyid "may only be used to narrow the selection")
+        if store_codes:                      # a broken store: nothing is tried (§5, 18/11/2026)
+            res["result"] = store_codes[0]
+            continue
         names = [kid] if kid else sorted(trust_store)
         if kid and kid not in trust_store:
             res["result"] = "unknown_keyid"
@@ -567,16 +587,8 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
             _r(listed, "unknown_keyid", f"signatures[{i}]: no keyid and an empty trust store")
             continue
         hit = None
-        for name in names:
+        for name in names:                   # every key here passed the store check above
             pub = trust_store[name]
-            if not isinstance(pub, str) or not _HEX64.fullmatch(pub):
-                res["result"] = "trusted_key_malformed"
-                _r(reasons, "trusted_key_malformed", f"trust store key of {name[:80]!r}: 64 lower-case hex required")
-                break
-            if weak_ed25519_key(pub):
-                res["result"] = "weak_key"
-                _r(reasons, "weak_key", f"trust store key of {name[:80]!r}: small order or non-canonical Ed25519 key, refused")
-                break
             if len(sig) != 64:
                 res["result"] = "failed"
                 _r(listed, "signature_failed", f"signatures[{i}]: an Ed25519 signature is 64 bytes, got {len(sig)}")

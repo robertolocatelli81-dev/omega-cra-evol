@@ -264,66 +264,174 @@ def _marker_env() -> Dict[str, str]:
     return _MARKER_ENV
 
 
-def _ver_key(v: str) -> Tuple[int, ...]:
-    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.+-]", v))
+# spec/SBOM_INGEST.md, "PEP 508 markers of the installed floor" (0.13.0, 18/11/2026): the fallback used when `packaging` is
+# not importable parses the grammar of the PyPA "Dependency specifiers" and answers packaging's boolean, or None.
+_VERSION_FIELDS = frozenset(("python_version", "python_full_version", "platform_release"))   # packaging's, minus the
+_PLAIN = re.compile(r"[0-9]+(?:\.[0-9]+)*")                                                     # one this env lacks
+_NOT_A_VERSION_CHAR = re.compile(r"[^A-Za-z0-9._+!*\-\s]")
+_MARKER_TOKEN = re.compile(r"""\s*(?:(?P<str>'[^']*'|"[^"]*")|(?P<op>===|==|!=|<=|>=|~=|<|>)|(?P<par>[()])"""
+                           r"""|(?P<word>[A-Za-z_][A-Za-z0-9_.]*))""")
 
 
-def _marker_atom(atom: str) -> Optional[bool]:
-    """`var op "value"` (either side may be the literal); None when the variable is not one we know."""
-    m = re.fullmatch(r"""\s*([A-Za-z_][A-Za-z0-9_.]*|["'][^"']*["'])\s*(===|==|!=|<=|>=|<|>|~=|not in|in)\s*([A-Za-z_][A-Za-z0-9_.]*|["'][^"']*["'])\s*""", atom)
-    if not m:
+def _release(v: str) -> Tuple[int, ...]:
+    return tuple(int(x) for x in v.split("."))
+
+
+def _padded(a: Tuple[int, ...], b: Tuple[int, ...]) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    n = max(len(a), len(b))
+    return a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+
+
+def _string_op(op: str, left: str, right: str) -> Optional[bool]:
+    """a string field (and packaging's fallback when the specifier is invalid): Python strings, case-sensitive; `<` and
+    `>` false, `<=` and `>=` as `==` (Dependency specifiers, January 2026); `~=`, `===` undefined"""
+    if op in ("==", "<=", ">="):
+        return left == right
+    if op == "!=":
+        return left != right
+    if op in ("<", ">"):
+        return False
+    return None
+
+
+def _version_op(op: str, left: str, right: str) -> Optional[bool]:
+    """a version field: packaging builds Specifier(op + right) and asks whether it contains `left`"""
+    lv, rv = left.strip(), right.strip()
+    wild = op in ("==", "!=") and rv.endswith(".*") and _PLAIN.fullmatch(rv[:-2]) is not None
+    if _PLAIN.fullmatch(lv) and (wild or _PLAIN.fullmatch(rv)):
+        if op == "===":
+            return lv == rv
+        a = _release(lv)
+        if wild:
+            prefix = _release(rv[:-2])
+            hit = (a + (0,) * len(prefix))[:len(prefix)] == prefix
+            return hit if op == "==" else not hit
+        b = _release(rv)
+        if op == "~=":
+            if len(b) < 2:
+                return None
+            x, y = _padded(a, b)
+            return x >= y and (a + (0,) * len(b))[:len(b) - 1] == b[:-1]
+        x, y = _padded(a, b)
+        return {"==": x == y, "!=": x != y, "<": x < y, "<=": x <= y, ">": x > y, ">=": x >= y}[op]
+    if not any(c.isdigit() for c in right) or _NOT_A_VERSION_CHAR.search(right):
+        return _string_op(op, left, right)   # the right value cannot be a version: packaging's invalid specifier
+    return None
+
+
+def _marker_tokens(marker: str) -> Optional[List[Tuple[str, str]]]:
+    out: List[Tuple[str, str]] = []
+    i = 0
+    while i < len(marker):
+        if marker[i:].strip() == "":
+            break
+        m = _MARKER_TOKEN.match(marker, i)
+        if not m:
+            return None
+        kind = m.lastgroup or ""
+        val = m.group(kind)
+        if kind == "word" and val in ("and", "or", "in", "not"):
+            kind = val
+        out.append((kind, val))
+        i = m.end()
+    return out
+
+
+def _fallback_marker(marker: str) -> Optional[bool]:
+    """the grammar of Dependency specifiers: marker_or := marker_and ('or' marker_and)*; marker_and := marker_expr
+    ('and' marker_expr)*; marker_expr := marker_var marker_op marker_var | '(' marker_or ')'. None: outside the
+    grammar, an unknown variable, two variables or two strings compared, or an undefined comparison."""
+    toks = _marker_tokens(marker)
+    if not toks:
         return None
     env = _marker_env()
+    pos = 0
+    unknown = False
 
-    def val(x: str) -> Optional[str]:
-        if x[0] in "\"'":
-            return x[1:-1]
-        return env.get(x) if x in env else None
-    left, op, right = val(m.group(1)), m.group(2), val(m.group(3))
-    if left is None or right is None:
+    def peek(k=0):
+        return toks[pos + k] if pos + k < len(toks) else ("end", "")
+
+    def take():
+        nonlocal pos
+        pos += 1
+        return toks[pos - 1]
+
+    def expr():
+        nonlocal unknown
+        if peek()[0] == "par" and peek()[1] == "(":
+            take()
+            v = disj()
+            if peek() != ("par", ")"):
+                raise ValueError("')' expected")
+            take()
+            return v
+        a = take()
+        if peek()[0] == "op":
+            op = take()[1]
+        elif peek()[0] == "in":
+            take()
+            op = "in"
+        elif peek()[0] == "not" and peek(1)[0] == "in":
+            take(); take()
+            op = "not in"
+        else:
+            raise ValueError("operator expected")
+        b = take()
+        if a[0] not in ("str", "word") or b[0] not in ("str", "word"):
+            raise ValueError("variable or string expected")
+        if (a[0] == "word") == (b[0] == "word") or (a[0] == "word" and a[1] not in env) or \
+                (b[0] == "word" and b[1] not in env):
+            unknown = True
+            return False
+        key = a[1] if a[0] == "word" else b[1]
+        left = env[a[1]] if a[0] == "word" else a[1][1:-1]
+        right = env[b[1]] if b[0] == "word" else b[1][1:-1]
+        if op in ("in", "not in"):
+            return (left in right) == (op == "in")
+        r = _version_op(op, left, right) if key in _VERSION_FIELDS else _string_op(op, left, right)
+        if r is None:
+            unknown = True
+            return False
+        return r
+
+    def conj():
+        v = expr()
+        while peek()[0] == "and":
+            take()
+            v = expr() and v      # every atom is read: one None anywhere makes the marker None (packaging raises)
+        return v
+
+    def disj():
+        v = conj()
+        while peek()[0] == "or":
+            take()
+            v = conj() or v
+        return v
+
+    try:
+        v = disj()
+    except (ValueError, IndexError):
         return None
-    if op in ("in", "not in"):
-        return (left in right) == (op == "in")
-    if op == "===":
-        return left == right
-    versionish = m.group(1) in ("python_version", "python_full_version") or m.group(3) in ("python_version", "python_full_version")
-    a, b = (_ver_key(left), _ver_key(right)) if versionish else (left, right)
-    if op == "~=":
-        return a >= b and a[:len(b) - 1] == b[:len(b) - 1] if versionish else left == right
-    return {"==": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+    if pos != len(toks) or unknown:
+        return None
+    return bool(v)
 
 
 def marker_applies(marker: str) -> Optional[bool]:
-    """Evaluate a PEP 508 marker for THIS interpreter: `packaging` when importable, otherwise a small evaluator of
-    `and`/`or`/parentheses over the known variables. None = could not evaluate (unknown variable or syntax)."""
+    """Evaluate a PEP 508 marker for THIS interpreter (spec/SBOM_INGEST.md, installed floor, 0.13.0): `packaging` when
+    importable, otherwise `_fallback_marker`. None = could not evaluate (outside the grammar, unknown variable, undefined
+    comparison): the requirement is kept and counted."""
     marker = marker.strip()
     if not marker:
         return True
     try:
-        from packaging.markers import Marker, UndefinedEnvironmentName, InvalidMarker  # type: ignore
-        try:
-            return bool(Marker(marker).evaluate())
-        except (UndefinedEnvironmentName, InvalidMarker):
-            return None
+        from packaging.markers import InvalidMarker, Marker, UndefinedComparison, UndefinedEnvironmentName  # type: ignore
     except ImportError:
-        pass
-    expr = marker
-    # innermost parentheses first
-    while "(" in expr:
-        m = re.search(r"\(([^()]*)\)", expr)
-        if not m:
-            return None
-        inner = marker_applies(m.group(1))
-        if inner is None:
-            return None
-        expr = expr[:m.start()] + ("1==1" if inner else "1==2") + expr[m.end():]
-    for part in re.split(r"\s+or\s+", expr):
-        vals = [_marker_atom(a) if a.strip() not in ("1==1", "1==2") else a.strip() == "1==1" for a in re.split(r"\s+and\s+", part)]
-        if any(v is None for v in vals):
-            return None
-        if all(vals):
-            return True
-    return False
+        return _fallback_marker(marker)
+    try:
+        return bool(Marker(marker).evaluate())
+    except (UndefinedEnvironmentName, InvalidMarker, UndefinedComparison):   # 18/11/2026: UndefinedComparison was
+        return None                                                          # a traceback
 
 
 def _req_name(req: str) -> str:

@@ -27,7 +27,8 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from fractions import Fraction
+from typing import Any, Callable, Dict, List, Optional
 
 
 HASHES: Dict[str, Callable[[bytes], "hashlib._Hash"]] = {"sha3-256": hashlib.sha3_256, "sha2-512": hashlib.sha512}
@@ -38,6 +39,27 @@ DEFAULT_HASH = "sha3-256"
 ANCHOR = "cra-lta-time-anchor/1"
 ANCHOR_OWN = ("alg", "anchor", "ephemeral_key", "hash", "pub", "rehash", "ts_source")   # §2: the fields before the token
 ANCHOR_HASHES: Dict[str, Callable[[bytes], "hashlib._Hash"]] = {"sha256": hashlib.sha256, "sha3-256": hashlib.sha3_256}
+
+
+def _exact_gen_time(rec: Any) -> Optional[Fraction]:
+    """spec/TIME_ANCHOR.md §3 (0.13.0): the exact value of the genTime of an anchored rfc3161 record whose `t` is the
+    rendering of that genTime (a Fraction: no float), else None (the record is ordered by float(t), as before). Two
+    genTime closer than the double's spacing (2^-22 s from 2004 to 2038) have the same `t`."""
+    import base64 as _b64
+    import binascii
+    from .rfc3161_token import TokenRefused, gen_time_seconds, rfc3161_tstinfo
+    if not isinstance(rec, dict) or rec.get("ts_source") != "rfc3161" or rec.get("anchor") != ANCHOR \
+            or not isinstance(rec.get("token_b64"), str):
+        return None
+    try:
+        gen = rfc3161_tstinfo(_b64.b64decode(rec["token_b64"].encode("ascii"), validate=True))[2]
+        if rec.get("t") != repr(gen_time_seconds(gen)):
+            return None
+        whole = Fraction(int(gen_time_seconds(gen[:14] + "Z")))
+        frac = gen[15:-1] if gen[14:15] == "." else ""
+        return whole + (Fraction(int(frac), 10 ** len(frac)) if frac else 0)
+    except (TokenRefused, IndexError, ValueError, binascii.Error, UnicodeEncodeError):
+        return None
 
 
 def register_hash(name: str, ctor: Callable) -> None:
@@ -256,8 +278,10 @@ class LongTermEvidence:
             if len(self.records) > 1:
                 reasons.append("renewal chain: 'renewed before the algorithm broke' rests on UNVERIFIED timestamps (inject timestamp_trust_fn)")
         times = [float(r["t"]) for r in self.records]
+        exact = [_exact_gen_time(r) for r in self.records]   # spec/TIME_ANCHOR.md §3 (0.13.0): genTime is the authority
         for i in range(1, len(times)):
-            if times[i] < times[i - 1]:
+            pair = (exact[i - 1], exact[i])
+            if (pair[1] < pair[0]) if None not in pair else (times[i] < times[i - 1]):
                 reasons.append(f"record {i}: timestamp not monotonic")
         last = len(self.records) - 1
         if not policy.trusted_at(self.records[last]["alg"], now):

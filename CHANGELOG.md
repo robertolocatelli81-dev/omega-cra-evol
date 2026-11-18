@@ -65,6 +65,42 @@
   an openssl without `-no-CAstore`. Generative: every DER element of the token dropped, duplicated, retagged, given a
   stranger element or flipped (the step never raises; every change inside the ESS attribute that leaves it invalid is
   refused). 31 of 31 mutants chosen by hand on the changed lines are killed.
+- **An RFC 3161 token whose signer certificate is nowhere to be found is "not evaluated", no longer "invalid"**
+  (`spec/TIME_ANCHOR.md` §5 step 7, written before the code; new reason `signer_certificate_absent`, logged with
+  `"ok": None`). When `openssl cms -verify` stops at the signer lookup and every certificate of the token and every
+  pinned one was read and none is the one the SignerInfo names (issuerAndSerialNumber or subjectKeyIdentifier), the
+  signature was not evaluated (ETSI EN 319 102-1 §5.2.3.3): the record is not attested and the log says to pin the TSA
+  certificate. A token openssl cannot parse stays `signature_invalid` (§5.3.4); the absence is never presumed.
+- **More than one ESSCertID** (`spec/TIME_ANCHOR.md` §5 step 8; changes verdicts). RFC 2634 §5.4 / RFC 5035 §3: the
+  first ESSCertID is the signer certificate, the ones after it limit the certificates the path may use. `openssl ts
+  -verify` asks every listed certificate to be in the chain it built, so a token listing signer, CA and root with the
+  CA pinned (the shape of Sectigo's TSA) was refused; such a token is now checked as for a subjectKeyIdentifier signer
+  (ported from cryptovalid-opencore SPEC §11 step 7, v0.11): every ESSCertID's shape closed (hash length, known
+  algorithm, one directoryName, a certificate listed twice refused), the chain built only from the listed
+  certificates. Two attributes (v1 and v2) limit together.
+- **genTime is the authority for the order of anchored records** (`spec/TIME_ANCHOR.md` §3; changes verdicts). `t` is a
+  double: two genTime values closer than 2^-22 s had the same `t`, and a later record with an earlier genTime passed
+  the order check. The order of two anchored rfc3161 records now compares their exact genTime values (fractions, no
+  float); a record whose `t` is not the rendering of its genTime is ordered by `t` as before.
+- **`cra attest` and `cra verify-attestation` read the notice file once** (`spec/art14-filing` v0.1 §4.2; 9479ab2).
+  0.12.0 read the drop file three times, so a file changed between two reads was signed with a predicate of other bytes
+  than the subject digest binds. The digests, the predicate and `check_notice` now see the same bytes;
+  `notice_check.check_notice` gains the keyword `raw=` (API: experimental tier, added argument). A notice nested
+  200 000 deep is `drop_unreadable`, no longer a `RecursionError` traceback.
+- **The trust store of `verify-attestation` is checked whole** (`spec/art14-filing` v0.1 §5; changes verdicts). One
+  broken key (not 64 lower-case hex, small order or non-canonical, a name or a key that is not a string) refuses the
+  store, each broken key named, before any signature is tried. 0.12.0 checked a key only when a signature tried it, so
+  the verdict depended on the keyid and on the alphabetical order of the names.
+- **PEP 508 markers without `packaging`** (`spec/SBOM_INGEST.md`, installed floor; changes the installed SBOM where
+  `packaging` is absent). The fallback is now a parser of the "Dependency specifiers" grammar: a quoted string is one
+  token, `and` binds tighter than `or`, versions compare as PEP 440 releases (`3.11 == 3.11.0`, `.*` prefixes), and
+  every answer that is a boolean is `packaging`'s; anything else is `None` (kept and counted). 0.12.0 split the text on
+  ` and ` / ` or ` (`os_name == 'nt or posix'` was `None`) and left out of the SBOM a dependency marked
+  `python_version == '3.*'`. With `packaging`, `UndefinedComparison` (`os_name ~= "posix"`) was a traceback; it is
+  `None`. Differential test: 6000 random markers against `packaging.markers` 26.3, every boolean answer equal.
+- Positive controls (18/11/2026, Python 3.11, jsonschema, cryptography, packaging): on 9479ab2 the new files fail —
+  `tests/test_art14_trust_store_20261118.py` 2 failures + 1 error of 6, `tests/test_marker_fallback_20261118.py`
+  5 errors of 6, `tests/test_time_anchor_ess_absent_20261118.py` 7 failures + 2 errors of 10; here they pass.
 - **Qualified time stamps** (`spec/TIME_ANCHOR.md` §7): the qcStatements extension with `esi4-qtstStatement-1` that
   Implementing Regulation (EU) 2025/1929 requires in a token declared qualified, and the EU trusted lists, are not
   read; this tool never reports a token as qualified (it did not before either: the word appears nowhere in its output).

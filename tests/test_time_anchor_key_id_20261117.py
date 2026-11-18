@@ -280,7 +280,10 @@ class KeyIdNegatives(unittest.TestCase):
         for pins in ([self.lab.ca], [self.lab.ca, self.other.j("tsa.crt")], [self.other.ca, self.other.j("tsa.crt")]):
             ok, log = answer(forged, pins)
             self.assertEqual(ok, [False], (pins, log))
-            self.assertIn(log[0][0], ("signature_invalid", "not_issued_by_pinned_tsa"), log)
+            if self.other.j("tsa.crt") in pins:
+                self.assertIn(log[0][0], ("signature_invalid", "not_issued_by_pinned_tsa"), log)
+            else:   # 0.13.0, spec §5 step 7: the certificate the sid names is nowhere -> not evaluated, never verified
+                self.assertEqual(log[0][0], "signer_certificate_absent", log)
 
     def test_the_system_store_is_not_a_pin(self):
         """only the pinned certificates anchor: SSL_CERT_DIR trusting b's CA does not make b's token pass under a's pin"""
@@ -402,7 +405,8 @@ class AnchorParts(unittest.TestCase):
         t = tree(self.ski)
         ids = ess_v2(signer_info(t))
         ids.append(copy.deepcopy(ids[0]))
-        self.assertIn("2 ESSCertIDs", self.anchor(enc(t)))
+        # 0.13.0 (spec §5 step 8): more than one ESSCertID is read; a certificate listed twice is refused
+        self.assertIn("the same certificate hash as an earlier ESSCertID", self.anchor(enc(t)))
 
     def to_key_id(self, tok):
         """the tree of an issuerAndSerialNumber token with its sid rewritten to the TSA's key identifier"""
@@ -426,9 +430,10 @@ class AnchorParts(unittest.TestCase):
         self.assertIn("certHash", self.anchor(enc(t)))
 
     def test_ess_chain_of_ids(self):
-        """ess_cert_id_chain = yes: two ESSCertIDs. ts -verify takes the issuerAndSerialNumber form; this one refuses"""
+        """ess_cert_id_chain = yes: two ESSCertIDs (signer, then its CA). 0.13.0 (spec §5 step 8, RFC 2634 §5.4): the
+        first is the signer, the second limits the path; accepted (0.12.0 refused "2 ESSCertIDs")"""
         tok = self.lab.token(self.imp, chain=True)
-        self.assertIn("2 ESSCertIDs", self.anchor(self.to_key_id(tok)))
+        self.assertIsNone(self.anchor(self.to_key_id(tok)))
 
     def test_ess_v2_hash_algorithm(self):
         """ESSCertIDv2 with an explicit hashAlgorithm (sha384): accepted; with a parameter that is not NULL: refused"""
