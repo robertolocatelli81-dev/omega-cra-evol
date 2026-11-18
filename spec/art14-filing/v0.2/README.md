@@ -175,6 +175,8 @@ v0.1 vectors, CHANGELOG 0.9.0), but `predicate_type` where the statement was not
   others. A notice whose identifier is not in its scheme's form is refused (exit 1, nothing written), with the value
   named; a notice with no identifiers gives a statement without the key.
 - `caseReference` from `--case-reference ISSUER ID`, checked by §2.2 before anything is written.
+- The notice file is read **once** (omega-cra-evol 0.13.0, v0.1 §4.2): the identifiers, every other predicate value,
+  the check against the ledger and the subject digests come from the same bytes.
 - `--predicate v0.1` writes a v0.1 statement as cra-evidence 0.8.0 did (same bytes for the same inputs and instant,
   but `source.toolVersion` of a notice built by cra-evidence, which names the version that writes the statement:
   v0.1 §4; for an imported notice it is the source's); `--case-reference` is refused with it.
@@ -223,3 +225,6 @@ are real public records, chosen for their form, and say nothing about the synthe
   TypeURI by default. A receipt of 0.8.0 on the v0.1 vectors keeps every other key; its `predicate_type` is
   `"not_evaluated"` where the statement was not read.
 - 13/11/2026 (omega-cra-evol 0.10.0, no change of rule): The project is renamed from cra-evidence to omega-cra-evol in 0.10.0 (13/11/2026); this TypeURI, the value `"cra-evidence"` of `source.tool` and `declaredBy` for a notice built by the tool, and the vectors with their seed strings are identifiers and stay as they are.
+- 18/11/2026 (omega-cra-evol 0.13.0): the two verifier and producer rules of v0.1 of that day apply to v0.2 too (the
+  trust store checked whole, v0.1 §5; the notice file read once, v0.1 §4.2 and §6 here). Statement format, rules 1–5
+  and reason codes unchanged.

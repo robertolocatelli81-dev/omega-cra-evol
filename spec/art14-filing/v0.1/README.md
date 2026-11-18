@@ -124,6 +124,15 @@ whose `source.tool` is `"cra-evidence"` with another `documentSha256` or a non-e
    it does without a ledger — the drop file never carries the product.
 4. `attestedAt` is not earlier than `filing.filedAt` when both are present.
 
+**One reading of the notice file (18/11/2026, omega-cra-evol 0.13.0).** The verifier (with `--drop`) and the producer
+(`cra attest`) read the notice file once: the subject digests, the parsed notice and rule 2's rebuild are of those
+same bytes. Until 0.13.0 each read the file two or three times (the bytes for the digests, the file again for the
+JSON, and again for rule 2), so a file changed between two reads gave a statement whose predicate described other
+bytes than the subject digest binds. Measured on 18/11/2026 on omega-cra-evol 0.12.0: with only the second read
+seeing a changed `cve_id`, `cra attest` signed a v0.2 statement with `vulnerabilityIds` CVE-2024-9999 and the digest
+of the original file; the verifier refused it with the drop (`vulnerability_ids`) and found it `verified` without the
+drop. No rule of this format changes: the statement is the one the bytes it binds give.
+
 ### 4.3 Imported notices (`source.tool` other than `cra-evidence`)
 
 - The source document is kept **byte for byte** next to the ledger; `documentSha256` is the sha256 of those bytes.
@@ -155,6 +164,17 @@ is true.
   listed in the receipt. The payload checked by §3–§4 is the exact verified byte string (DSSE: never re-parse the
   envelope after verification).
 - An Ed25519 public key of small order is refused (as for the ledger tip, spec/RECEIPT.md).
+- **The trust store is checked whole, before any signature (18/11/2026, omega-cra-evol 0.13.0).** It is a JSON
+  object of signer ids to keys; every key MUST be 64 lower-case hex digits (an Ed25519 public key) and not of small
+  order or non-canonical. One key that is not is a broken trust store: the verifier refuses the whole store, whatever
+  the signatures and their `keyid`, with `trusted_key_malformed` or `weak_key` naming each such key, then
+  `not_trusted`; no signature is tried, and no broken key is skipped. Until 0.13.0 a key was checked only when a
+  signature tried it, so the verdict on one envelope and one broken store depended on the `keyid` and, without one, on
+  the alphabetical order of the names: measured on 18/11/2026 on 0.12.0, an envelope signed by the key of `z_good`, no
+  `keyid`: `{z_good}` trusted, `{a_bad: "zz", z_good}` refused (`trusted_key_malformed`), `{z_good, zz_bad: "zz"}`
+  trusted; with `keyid: "z_good"`, trusted with every store. Never a false green, but one store gave two verdicts.
+  Skipping a broken key (the change a review proposed) would make a store that cannot be what its owner meant
+  silently pass; it is refused instead.
 
 ## 6. Vectors
 
@@ -172,3 +192,7 @@ the expected refusal reason. Every verifier of this format MUST give the expecte
   accepts both TypeURIs and judges a v0.1 statement by these rules, with the receipt of 0.8.0. The vector
   `predicate_type_wrong` used the v0.2 TypeURI as its wrong value: it now uses `…/v0.3`.
 - 13/11/2026 (omega-cra-evol 0.10.0, no change of rule): The project is renamed from cra-evidence to omega-cra-evol in 0.10.0 (13/11/2026); this TypeURI, the value `"cra-evidence"` of `source.tool` and `declaredBy` for a notice built by the tool, and the vectors with their seed strings are identifiers and stay as they are.
+- 18/11/2026 (omega-cra-evol 0.13.0): §5, the trust store is checked whole before any signature, and a broken one is
+  refused (changes verdicts: an envelope trusted by 0.12.0 with a `keyid`, or with the broken key sorted after the good
+  one, is refused); §4.2, the notice file is read once by the verifier and the producer (no rule changes). The vector
+  `small_order_trusted_key` keeps its codes (`weak_key`, `not_trusted`).

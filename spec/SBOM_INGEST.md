@@ -110,3 +110,45 @@ every kind of object (0.12.0 knew only `components` and `metadata.component`, so
 dangling). `source.dangling_edges` keeps its meaning (distinct `dependsOn` targets that resolve to nothing; a BOM-Link is not counted there either),
 `source.dangling_refs` lists the first ten distinct unresolved values of all the fields above, and
 `source.dangling_by_field` counts them per field (`{}` when every reference resolves).
+
+## Not an ingest: PEP 508 markers of the installed floor (0.13.0, written before the code on 18/11/2026)
+
+`sbom_from_installed(..., transitive=True)` (`cra sbom --installed`) follows the `Requires-Dist` of the installed
+distributions and drops a requirement whose environment marker is false for this interpreter. `marker_applies(marker)`
+answers `True`, `False`, or `None` (not evaluated: the requirement is kept and counted in
+`source.markers_unevaluated_kept`). The grammar and the comparisons are those of the PyPA specification "Dependency
+specifiers" (PEP 508 as amended; read on packaging.python.org on 18/11/2026, sha256 of the page `977f8427…`, its
+history ending with the amendments of January and July 2026), and the reference is `packaging.markers` (26.3 measured),
+used whenever it is importable.
+
+1. **`packaging` importable:** its answer; `InvalidMarker`, `UndefinedEnvironmentName` and `UndefinedComparison` (an
+   operator the specification does not define for that field, e.g. `os_name ~= "posix"`) are `None`. Until 0.13.0
+   `UndefinedComparison` was not caught and ended the command with a traceback.
+2. **`packaging` not importable — the fallback**, a parser of the specification's grammar, never a split of the text:
+   a quoted string is one token whatever it contains (`and`, `or`, parentheses, the other quote); `and` binds tighter
+   than `or`; parentheses nest. Its answer is always `True`, `False` or `None`, and where it is a boolean it is
+   `packaging`'s:
+   - the variables are the ten this package reads (`python_version`, `python_full_version`, `os_name`, `sys_platform`,
+     `platform_release`, `platform_system`, `platform_version`, `platform_machine`, `platform_python_implementation`,
+     `implementation_name`); any other name (`extra`, `implementation_version`, legacy dotted names), a comparison of two
+     variables or of two strings, and any text outside the grammar are `None`; one `None` anywhere makes the whole
+     marker `None` (as `packaging` raises on the first one);
+   - `python_version`, `python_full_version` and `platform_release` (`packaging`'s version fields): with `in` / `not in`,
+     string containment. With another operator, as `packaging` builds a specifier from the operator and the right-hand
+     value and asks whether it contains the left-hand one: when both values, white space at the ends removed, are plain
+     release versions (`N(.N)*`; for `==` and `!=` the right one may end in `.*`), they are compared as PEP 440 does —
+     missing release segments are zeros (`3.11 == 3.11.0`), `.*` matches the prefix, `~=` needs two segments or more
+     (else `None`), `===` is equality of the two strings; when the right-hand value cannot be a version at all (it has
+     no digit, or a character no version or specifier has: anything but letters, digits, white space, `.`, `_`, `-`,
+     `+`, `!`, `*`), the string field rules below apply, as in `packaging` when the specifier is invalid
+     (`platform_release == 'a(b)'` is `False`); anything else (a pre-release, a post or local version, an epoch, a
+     left-hand value that is not a plain release, such as Linux's `platform_release`) is `None`;
+   - every other variable is a string field: `==`, `!=`, `in`, `not in` as Python strings (case-sensitive); `<` and `>`
+     are false and `<=` and `>=` mean `==` (the specification's recommendation for installation tools, January 2026,
+     and `packaging`'s); `~=` and `===` are `None`.
+
+Until 0.13.0 the fallback split the text on ` and ` / ` or ` before reading the strings and compared versions as
+tuples: measured on 18/11/2026 without `packaging`, `os_name == 'posix and linux'`, `os_name == 'nt or posix'` and
+`platform_release == 'a(b)'` were `None` (kept and counted; `False` for `packaging`), `python_version == '3.9.0'` (on
+3.9) and `python_version == '3.*'` were `False` where `packaging` says `True` (a dependency of this interpreter left
+out of the SBOM), and `os_name ~= 'posix'` was `True`.
