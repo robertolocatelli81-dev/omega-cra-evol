@@ -32,4 +32,5 @@ packages = ["omega_cra_evol", "cra_evidence"]   # cra_evidence: the earlier impo
 
 [tool.setuptools.package-data]
 omega_cra_evol = ["data/*.json", "data/cyclonedx/*.json", "data/cyclonedx/LICENSE", "data/cyclonedx/SOURCES.txt",
-                  "data/spdx/*.json", "data/spdx/LICENSE-*", "data/spdx/SOURCES.txt"]
+                  "data/spdx/*.json", "data/spdx/LICENSE-*", "data/spdx/SOURCES.txt",
+                  "data/openvex/*.json", "data/openvex/LICENSE-*", "data/openvex/SOURCES.txt"]

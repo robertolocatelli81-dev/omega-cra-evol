@@ -1,0 +1,14 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/Santandersecurityresearch/asvs/bom.vex.json",
+  "author": "Santander Cyber Security Research",
+  "timestamp": "2026-06-03T14:52:47Z",
+  "last_updated": "2026-06-03T14:52:47Z",
+  "version": 1,
+  "products": [
+    {
+      "@id": "pkg:pypi/asvs@SCANROUTE"
+    }
+  ],
+  "statements": []
+}

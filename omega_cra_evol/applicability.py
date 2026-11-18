@@ -27,8 +27,8 @@ Sources (read 19/10/2026):
   the event and ends "with the expiry of the last hour" of the day in the last year that falls on the same date (the
   last day of the month when that date does not exist). Neither article names a time zone. (1182/71 speaks of acts of
   the Council or Commission; its use for this Regulation of the Parliament and the Council is this tool's reading.)
-- Commission guidance C(2026) 5252, annex (ec.europa.eu/newsroom/dae/redirection/document/131456, sha256 fe209c25…8234),
-  §217, pp. 75–76 (the content of the DRAFT guidance, approved 27/07/2026; formal adoption not checked) — NON-BINDING
+- Commission guidance C/2026/6013, OJ C, 17.11.2026 (publications.europa.eu/resource/oj/C_202606013, sha256
+  06a9de5d…8eb502; until 0.12.0 cited as the draft C(2026) 5252, annex), §217 — NON-BINDING (its §8)
   interpretation: the obligation to report applies when the manufacturer becomes aware of
   ACTIVE EXPLOITATION; a vulnerability whose active exploitation it knew before 11 September 2026 is not reported
   retroactively; one known before that date whose exploitation becomes known after it is reported. §217 speaks of
@@ -49,7 +49,7 @@ from __future__ import annotations
 # The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
 # release with a changelog note). Everything else here is private. tests/test_api_surface.py keeps the list.
 __all__ = [
-    "ART14_DATE", "CHAPTER_IV_DATE", "DEPENDS", "FULL_APPLICATION_DATE", "GUIDANCE", "PERIOD_RULE", "READINGS",
+    "ART14_DATE", "CHAPTER_IV_DATE", "DEPENDS", "FULL_APPLICATION_DATE", "GUIDANCE", "GUIDANCE_PUBLISHED", "PERIOD_RULE", "READINGS",
     "RETENTION_YEARS", "ROLES", "START_RULE", "STREAMS", "SUPPORT_PERIOD_MIN_YEARS", "SUPPORT_STATUSES",
     "UPDATE_AVAILABILITY_YEARS", "add_years", "art14_obligation", "brussels_offset", "day_start",
     "legacy_product_scope", "local_date", "reporting_in_force", "retention_until", "support_period",
@@ -78,6 +78,11 @@ START_RULE = ("a date of the Regulation applies from the beginning of the first 
 PERIOD_RULE = ("a period in years from an event excludes the day of the event and ends at the expiry of the same date in "
                "the last year (Reg. 1182/71 Art. 3(1), 3(2)(c)); the day is read in UTC and in Europe/Brussels, both "
                "returned; the extension of Art. 3(4) (a last day on a Saturday, Sunday or public holiday) is NOT applied")
+# The citation inside GUIDANCE is the draft's (C(2026) 5252, annex): this text is written into every vulnerability record
+# (`overdue()["art14_obligation"]["interpretation"]`) and into the records the art14-filing vectors are generated from,
+# so its bytes do not change. The guidance is published as C/2026/6013 (GUIDANCE_PUBLISHED), §217 with the same words.
+GUIDANCE_PUBLISHED = ("published as Commission guidance C/2026/6013, OJ C, 17.11.2026 (§8: not binding); §217 has the "
+                      "words of the draft C(2026) 5252 that `interpretation` cites")
 GUIDANCE = ("Commission guidance C(2026) 5252, annex §217, pp. 75-76 (non-binding): the obligation arises on awareness "
             "of active exploitation; exploitation known before 11 September 2026 is not reported retroactively; a "
             "vulnerability known before that date whose exploitation becomes known after it is reported")

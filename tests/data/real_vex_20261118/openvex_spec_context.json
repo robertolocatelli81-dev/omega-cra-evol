@@ -1,0 +1,113 @@
+{
+  "xsd": "http://www.w3.org/2001/XMLSchema#",
+  "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+  "openvex": "https://openvex.dev/ns/v0.2.0#",
+  "author": {
+    "@id":"openvex:author",
+    "@type": "xsd:string"
+  },
+  "role": {
+    "@id": "openvex:role",
+    "@type": "xsd:string"
+  },
+  "version": {
+    "@id": "openvex:version",
+    "@type": "xsd:integer"
+  },
+  "softwareIdentifier": {
+    "@id":"openvex:softwareIdentifier",
+    "@type": "xsd:string"
+  },
+  "vexStatus": {
+    "@id":"openvex:vexStatus",
+    "@type":"xsd:string"
+  },
+  "vexJustification": {
+    "@id":"openvex:vexJustification",
+    "@type":"xsd:string"
+  },
+  "status": {
+    "@type": "openvex:vexStatus",
+    "@id": "openvex:status"
+  },
+  "timestamp": {
+    "@type": "xsd:dateTime",
+    "@id": "openvex:timestamp"
+  },
+  "last_updated": {
+    "@type": "xsd:dateTime",
+    "@id": "openvex:lastUpdated"
+  },
+  "tooling": {
+    "@type": "xsd:string",
+    "@id": "openvex:tooling"
+  },
+  "supplier": {
+    "@type": "xsd:string",
+    "@id": "openvex:supplier"
+  },
+  "status_notes": {
+    "@type": "xsd:string",
+    "@id": "openvex:statusNotes"
+  },
+  "justification": {
+    "@type": "openvex:vexJustification",
+    "@id": "openvex:justification"
+  },
+  "impact_statement": {
+    "@type": "xsd:string",
+    "@id": "openvex:impactStatement"
+  },
+  "action_statement": {
+    "@type": "xsd:string",
+    "@id": "openvex:actionStatement"
+  },
+  "action_statement_timestamp": {
+    "@type": "xsd:dateTime",
+    "@id": "openvex:actionStatementTimestamp"
+  },
+  "hashes": {
+    "@id": "openvex:hash",
+    "@type": "xsd:string",
+    "@container": "@index"
+  },
+  
+  "statements": {
+    "@id": "openvex:statement",
+    "@container":"@set"
+  },
+  "subcomponents": {
+    "@id":"openvex:subcomponent",
+    "@container":"@set"
+  },
+  "products": {
+    "@id": "openvex:product",
+    "@container": "@set",
+    "@context": {}
+  },
+      
+  "identifiers": {
+    "@id": "openvex:identifier",
+    "@type": "openvex:softwareIdentifier",
+    "@container": "@index"
+  },
+    
+  "vulnerability": {
+    "@id": "openvex:vulnerability",
+    "@context": {
+      "name": {
+        "@id": "openvex:name",
+        "@type": "openvex:vulnName"
+      },
+      "aliases": {
+        "@id":"openvex:alias",
+        "@type":"openvex:vulnName",
+        "@container":"@set"
+      },
+      "description": {
+        "@id":"openvex:vulnDescription",
+        "@type":"xsd:string"
+      }
+    }
+  }
+}

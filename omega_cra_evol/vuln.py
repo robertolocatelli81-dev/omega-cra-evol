@@ -7,7 +7,7 @@ later than 14 days after a corrective or mitigating measure is AVAILABLE (not 14
 summaries get wrong); for a severe incident the final report is due one month after the 72 h notification.
 The obligation arises only for ACTIVELY EXPLOITED vulnerabilities: a non-exploited one is never "overdue".
 For an actively exploited vulnerability `awareness_utc` is the instant the manufacturer became aware of its ACTIVE
-EXPLOITATION (the Art. 14 trigger; Commission guidance C(2026) 5252 annex §217, non-binding), for an incident the instant
+EXPLOITATION (the Art. 14 trigger; Commission guidance C/2026/6013 §217, non-binding), for an incident the instant
 it became aware of the severe incident. Since 0.6.0 `overdue()` also says whether the obligation arose at all
 (`applicability.art14_obligation`): an exploitation known before 11 September 2026 is not reported retroactively, and
 an awareness between 00:00 Europe/Brussels and 00:00 UTC of that day depends on the time-zone reading — both answers given.

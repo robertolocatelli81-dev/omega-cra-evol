@@ -182,7 +182,10 @@ English XHTML, fetched 2026-11-18 18:23–18:24 UTC) and its SPARQL endpoint for
     assess it.
   - §217: same words as the draft — no reporting of vulnerabilities "of whose active exploitation it had already become
     aware before 11 September 2026"; a vulnerability known before that date whose active exploitation becomes known
-    after it is reported. `art14_obligation()` is unchanged; its `GUIDANCE` text now cites C/2026/6013.
+    after it is reported. `art14_obligation()` is unchanged, and so is the text it writes into every vulnerability
+    record (`interpretation`, which cites the draft C(2026) 5252: changing it would change the bytes of the records the
+    art14-filing vectors are generated from); `cra obligations` prints `guidance_published` next to it
+    (`applicability.GUIDANCE_PUBLISHED`).
   - §218: "a manufacturer is only required to report actively exploited vulnerabilities contained in their product with
     digital elements"; a vulnerability of a third-party component that cannot be exploited, or has not been exploited,
     in the product "is not subject to mandatory reporting for that manufacturer". From 0.13.0 a vulnerability record

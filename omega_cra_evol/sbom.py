@@ -22,8 +22,8 @@ __all__ = [
     "CYCLONEDX_COMPONENT_TYPES", "CYCLONEDX_EXPORT_VERSIONS", "ECMA_KEYWORDS", "EcmaPatternUnsupported",
     "INGESTED_FORMATS", "IRI_REFERENCE", "MAX_SOURCE_BYTES", "PURL_TYPE_TO_OSV", "SBOMComponent", "SBOMRecord",
     "SCHEMA_TEXT_MAX", "SPDX3_CONTEXT_301", "SPDX_PURPOSE_TO_TYPE", "components_for_osv",
-    "cyclonedx_schema_check", "dedup", "ecma_pattern", "installed_license", "is_iri_reference",
-    "is_spdx_expression", "is_spdx_id", "marker_applies", "pypi_purl", "reingest", "resolved_components",
+    "cyclonedx_schema_check", "dedup", "ecma_pattern", "installed_license", "is_ci_component", "is_iri_reference",
+    "is_spdx_expression", "is_spdx_id", "is_version_range", "marker_applies", "pypi_purl", "reingest", "resolved_components",
     "sbom_from_cyclonedx", "sbom_from_installed", "sbom_from_spdx", "schema_patterns", "source_fingerprint",
     "spdx_schema_check",
 ]
@@ -219,9 +219,32 @@ def is_spdx_id(value: str) -> bool:
     return value in _SPDX_IDS
 
 
+_VERSION_RANGE = re.compile(r"[<>=,|^*\s]|\A~")   # spec/SBOM_INGEST.md, "The floor counts versions" (0.13.0)
+
+
+def is_version_range(version: str) -> bool:
+    """A range or a constraint (`>= 2.5,< 4`, `^1.2`, `~1.2`, `1.*`), not a version: `<`, `>`, `=`, `,`, `|`, `^`, `*`
+    or white space anywhere, or `~` first. `5.7-0.5~deb12u1` (Debian), `1.0+build`, `1:2.3` are versions."""
+    return bool(_VERSION_RANGE.search(version))
+
+
+def is_ci_component(c: SBOMComponent) -> bool:
+    """A CI workflow step (purl `pkg:githubactions/…`): not a component of the product (Annex I part II(1))."""
+    return c.purl.lower().startswith("pkg:githubactions/")
+
+
 def resolved_components(record: "SBOMRecord") -> List[SBOMComponent]:
-    """Components with a real version (a declared-but-NOT-INSTALLED dependency is not evidence of anything)."""
-    return [c for c in record.components if c.version and c.version not in ("NOT-INSTALLED", "NOASSERTION", "NONE")]
+    """Components with a real version (a declared-but-NOT-INSTALLED dependency is not evidence of anything); from 0.13.0
+    a version range and a CI action are not counted either (spec/SBOM_INGEST.md, "The floor counts versions")."""
+    return [c for c in record.components if c.version and c.version not in ("NOT-INSTALLED", "NOASSERTION", "NONE")
+            and not is_version_range(c.version) and not is_ci_component(c)]
+
+
+def _floor_counts(comps: List[SBOMComponent]) -> Dict[str, int]:
+    """source.versions_not_resolved / source.ci_components of an ingested document (spec/SBOM_INGEST.md, 0.13.0)"""
+    u = dedup(comps)
+    return {"versions_not_resolved": sum(1 for c in u if c.version and not is_ci_component(c) and is_version_range(c.version)),
+            "ci_components": sum(1 for c in u if is_ci_component(c))}
 
 
 def pypi_purl(name: str, version: str) -> str:
@@ -542,10 +565,12 @@ def _not_json_reason(raw: bytes, err: "json.JSONDecodeError") -> str:
     if head.startswith("\ufeff"):
         return "document malformed: not JSON (it starts with a byte order mark, U+FEFF)"
     if _SPDX_TAG_VALUE.match(head):
-        return "SPDX tag-value is not supported: give the SPDX JSON document"
+        return ("SPDX tag-value is not supported: give the SPDX JSON document (spdx/tools-python converts it: "
+                "\"pyspdxtools -i <file>.spdx -o <file>.spdx.json --novalidation\")")
     if head.lstrip().startswith("<"):
         if "cyclonedx.org/schema/bom" in head:
-            return "CycloneDX XML is not supported: give the CycloneDX JSON document"
+            return ("CycloneDX XML is not supported: give the CycloneDX JSON document (CycloneDX/cyclonedx-cli converts it: "
+                    "\"cyclonedx convert --input-file <file>.xml --output-file <file>.json\")")
         if "rdf:RDF" in head and "spdx.org/rdf" in head:
             return "SPDX RDF/XML is not supported: give the SPDX JSON document"
         return "document malformed: not JSON (XML)"
@@ -1006,6 +1031,57 @@ def _cdx_identifiers(d: Any) -> List[str]:
     return out
 
 
+_IN_TOTO_STATEMENTS = ("https://in-toto.io/Statement/v1", "https://in-toto.io/Statement/v0.1")
+_CDX_PREDICATE = re.compile(r"https://cyclonedx\.org/bom(?:/v[0-9]+(?:\.[0-9]+)*)?")
+_SPDX_PREDICATE = re.compile(r"https://spdx\.dev/Document(?:/v[0-9]+(?:\.[0-9]+)*)?")
+_SYFT_JSON_REFUSED = ('Syft JSON is not supported: convert it with "syft convert <file> -o cyclonedx-json" '
+                     '(or -o spdx-json)')
+
+
+def _unwrap(d: Any, want: str) -> Tuple[Any, Dict[str, Any]]:
+    """spec/SBOM_INGEST.md rules 10 and 11 (0.13.0): an in-toto Statement whose predicate is a CycloneDX BOM / an SPDX
+    document gives its predicate (and what `source` says of the wrapper); a Syft JSON document or a DSSE envelope is
+    refused by name; anything else is returned as it is. `want`: "cyclonedx" or "spdx"."""
+    if not isinstance(d, dict):
+        return d, {}
+    desc = d.get("descriptor")
+    if isinstance(desc, dict) and desc.get("name") == "syft" and "artifacts" in d:
+        raise ValueError(_SYFT_JSON_REFUSED)
+    if {"payloadType", "payload", "signatures"} <= set(d):
+        raise ValueError("a DSSE envelope is not read: give the in-toto Statement it carries (its signature is not "
+                         "verified here either way)")
+    if "_type" not in d and "predicateType" not in d:
+        return d, {}
+    if d.get("_type") not in _IN_TOTO_STATEMENTS:
+        raise ValueError(f"in-toto: _type {str(d.get('_type'))[:120]!r} is not an in-toto Statement v1 or v0.1")
+    pt = d.get("predicateType")
+    kind = ("cyclonedx" if isinstance(pt, str) and _CDX_PREDICATE.fullmatch(pt) else
+            "spdx" if isinstance(pt, str) and _SPDX_PREDICATE.fullmatch(pt) else "")
+    if not kind:
+        raise ValueError(f"in-toto Statement: predicateType {str(pt)[:120]!r} is not a CycloneDX BOM or an SPDX document")
+    if kind != want:
+        raise ValueError(f"in-toto Statement of {'a CycloneDX BOM' if kind == 'cyclonedx' else 'an SPDX document'}: "
+                         f"give it with --from-{kind}")
+    if not isinstance(d.get("predicate"), dict):
+        raise ValueError("in-toto Statement: predicate is not a JSON object")
+    subj = d.get("subject")
+    return d["predicate"], {"wrapper": "in-toto-statement", "wrapper_predicate_type": pt,
+                            "wrapper_subjects": len(subj) if isinstance(subj, list) else 0}
+
+
+_BSI_TR_VERSION = "2.1.0"
+
+
+def _bsi_tr_note(fmt: str, version: str) -> Dict[str, Any]:
+    """spec/SBOM_INGEST.md, "The format version and BSI TR-03183-2" (0.13.0): a notice, never a refusal"""
+    def rel(v: str) -> Tuple[int, ...]:
+        return tuple(int(x) for x in re.findall(r"[0-9]+", v)[:3])
+    met = rel(version) >= ((1, 6) if fmt == "cyclonedx" else (3, 0, 1))
+    return {"version": _BSI_TR_VERSION, "format_minimum_met": met,
+            "note": ("BSI TR-03183-2 v2.1.0 §4 asks CycloneDX 1.6 or higher / SPDX 3.0.1 or higher; informative, the CRA "
+                     "does not make the TR binding; no other field of the TR is checked")}
+
+
 def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
                         allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest a CycloneDX JSON (1.2 … 1.7) from ANY generator: components are walked recursively (a generator may
@@ -1015,6 +1091,7 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
     edges, component types) and how many duplicates (same name+version+purl at two locations, as Syft emits for a
     workflow file referenced twice) the index merged — the count the auditor reads is the generator's, not ours."""
     raw, d = _load_document(path, raw)
+    d, wrapper = _unwrap(d, "cyclonedx")                  # rules 10, 11 (0.13.0)
     if not isinstance(d, dict) or d.get("bomFormat") != "CycloneDX":
         raise ValueError("CycloneDX malformed: not a JSON object with bomFormat 'CycloneDX'")
     schema_state, schema_text = cyclonedx_schema_check(d)
@@ -1110,6 +1187,9 @@ def sbom_from_cyclonedx(path: str, product_id: str, product_version: str, raw: O
               "schema_check": schema_text}
     if components_absent:
         source["components_absent"] = True
+    source.update(_floor_counts(comps))
+    source["bsi_tr_03183_2"] = _bsi_tr_note("cyclonedx", _s(d.get("specVersion")))
+    source.update(wrapper)
     source.update(_fingerprint_bytes(raw, path))
     md_comp = (d.get("metadata") or {}).get("component") if isinstance(d.get("metadata"), dict) else None
     ptype = _s(md_comp.get("type")) if isinstance(md_comp, dict) else ""
@@ -1296,6 +1376,52 @@ def _spdx2_see_also(d: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _spdx2_repeated_ids(d: Dict[str, Any]) -> List[Tuple[str, int]]:
+    """SPDX rule 8 (spec/SBOM_INGEST.md, 0.13.0): the SPDXID values (document, packages, files, snippets) that appear
+    more than once, in document order of the first occurrence, with their count"""
+    ids = [d.get("SPDXID")] + [x.get("SPDXID") for k in ("packages", "files", "snippets") for x in _lst(d.get(k))
+                               if isinstance(x, dict)]
+    seen: Dict[str, int] = {}
+    for v in ids:
+        if isinstance(v, str):
+            seen[v] = seen.get(v, 0) + 1
+    return [(v, n) for v, n in seen.items() if n > 1]
+
+
+_SPDX_IDSTRING = re.compile(r"SPDXRef-[A-Za-z0-9.\-]+")
+_ABSOLUTE_FILE = re.compile(r"[/\\]|[A-Za-z]:[/\\]")
+
+
+def _spdx2_spec_rules(d: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """SPDX rule 9 (spec/SBOM_INGEST.md, 0.13.0): the rules of the SPDX 2.x text the schema does not express that the
+    document does not meet, each with its section; reported, never a refusal"""
+    ver = _clean(d.get("spdxVersion")) or "SPDX-2.x"
+    out: List[Dict[str, Any]] = []
+
+    def add(section: str, rule: str, bad: List[str]) -> None:
+        if bad:
+            out.append({"section": f"{ver} {section}", "rule": rule, "count": len(bad), "examples": [b[:200] for b in bad[:3]]})
+    files = [f for f in _lst(d.get("files")) if isinstance(f, dict)]
+    add("§8.1", "a file name is relative to the package root",
+        [f["fileName"] for f in files if isinstance(f.get("fileName"), str) and _ABSOLUTE_FILE.match(f["fileName"])])
+    add("§8.4", "a file has a SHA1 checksum (cardinality 1..1)",
+        [str(f.get("fileName", f.get("SPDXID", ""))) for f in files
+         if not any(isinstance(c, dict) and c.get("algorithm") == "SHA1" for c in _lst(f.get("checksums")))])
+    pk = [p for p in _lst(d.get("packages")) if isinstance(p, dict)]
+    rels = [r for r in _lst(d.get("relationships")) if isinstance(r, dict)]
+    describes = (any(r.get("relationshipType") == "DESCRIBES" and r.get("spdxElementId") == "SPDXRef-DOCUMENT" for r in rels)
+                 or any(r.get("relationshipType") == "DESCRIBED_BY" and r.get("relatedSpdxElement") == "SPDXRef-DOCUMENT" for r in rels)
+                 or bool(_lst(d.get("documentDescribes"))))
+    add("§11.1", "DESCRIBES is mandatory when more than one package is present",
+        [f"{len(pk)} packages, no DESCRIBES relationship"] if len(pk) > 1 and not describes else [])
+    if ver == "SPDX-2.2":     # 2.3: the 2.3.1 schema already refuses it (pattern)
+        ids = [d.get("SPDXID")] + [x.get("SPDXID") for k in ("packages", "files", "snippets") for x in _lst(d.get(k))
+                                   if isinstance(x, dict)]
+        add("§6.3/§7.2/§8.2/§9.1", "SPDXRef-[idstring], idstring letters, numbers, '.' and '-'",
+            [v for v in ids if isinstance(v, str) and not _SPDX_IDSTRING.fullmatch(v)])
+    return out
+
+
 def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Optional[bytes] = None,
                    allow_nonconformant: bool = False) -> SBOMRecord:
     """Ingest an SPDX document: 2.2/2.3 JSON (`spdxVersion`, `packages`, `relationships`; DESCRIBES/DESCRIBED_BY
@@ -1307,6 +1433,7 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     official spdx/spdx-examples documents (15/09/2026); other generators' output is parsed by these rules, not
     proven against every tool. A document of neither shape raises."""
     raw, d = _load_document(path, raw)
+    d, wrapper = _unwrap(d, "spdx")                       # rules 10, 11 (0.13.0)
     if not isinstance(d, dict):
         raise ValueError("SPDX document is not a JSON object")
     if "spdxVersion" not in d and "@graph" not in d:
@@ -1317,6 +1444,11 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     if schema_state == "conformant" and see_also and see_also["not_a_url"]:     # rule 7.1 (spec/SBOM_INGEST.md): §10.4, a URL
         schema_state = "not_conformant"
         schema_text = (f"not conformant to {d['spdxVersion']} §10.4 at {see_also['not_a_url']}")[:300]
+    ids_repeated = _spdx2_repeated_ids(d) if spdx2 else []
+    if schema_state == "conformant" and ids_repeated:     # rule 8 (0.13.0): §6.3/§7.2/§8.2/§9.1 "a unique string"
+        v, n = ids_repeated[0]
+        schema_state = "not_conformant"
+        schema_text = f"not conformant to {d['spdxVersion']} §7.2 (SPDXID unique): {v[:120]!r} appears {n} times"[:300]
     if schema_state in ("not_conformant", "unsupported") and not allow_nonconformant:
         raise ValueError("SPDX " + schema_text + " (--allow-nonconformant records it, never as floor met)")
     if spdx2:
@@ -1326,7 +1458,9 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
         source = {"format": "spdx-json", "spec_version": _clean(d.get("spdxVersion")), "packages_declared": len(pk),
                   "packages_unnamed": sum(1 for x in pk if not _clean(x.get("name"))), "relationships_declared": len(rels),
                   "dependency_edges": sum(1 for r in rels if str(r.get("relationshipType", "")).upper() in ("DEPENDS_ON", "DEPENDENCY_OF")),
-                  "see_also_not_web": see_also["not_web"], "see_also_not_web_examples": see_also["examples"]}
+                  "see_also_not_web": see_also["not_web"], "see_also_not_web_examples": see_also["examples"],
+                  "spdxid_repeated": len(ids_repeated), "spdxid_repeated_examples": [v[:200] for v, _ in ids_repeated[:3]],
+                  "spec_rules": _spdx2_spec_rules(d)}
     elif "@graph" in d:
         comps, depth, root_purpose = _spdx3_components(d)
         g = [e for e in _lst(d.get("@graph")) if isinstance(e, dict)]
@@ -1345,6 +1479,12 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     if gv:   # "syft-1.52.0" / "trivy-0.74.0" → name + version
         source["generator"], source["generator_version"] = gv.group(1).rstrip("-"), gv.group(2)
     source["schema_check"] = schema_text
+    source.update(_floor_counts(comps))
+    ctx = d.get("@context")
+    source["bsi_tr_03183_2"] = _bsi_tr_note("spdx", _clean(d.get("spdxVersion"))[5:] if spdx2 else   # "SPDX-2.3" -> "2.3"
+                                            "3.0.1" if ctx == SPDX3_CONTEXT_301 or (isinstance(ctx, list) and SPDX3_CONTEXT_301 in ctx)
+                                            else "0")
+    source.update(wrapper)
     source.update(_fingerprint_bytes(raw, path))
     if root_purpose:
         source["root_purpose_declared"] = root_purpose     # kept as declared even when it has no CycloneDX counterpart (Trivy: SOURCE)

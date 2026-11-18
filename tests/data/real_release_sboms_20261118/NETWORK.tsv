@@ -1,0 +1,19 @@
+# url	sha256	ingest	expected verdict prefix (0.13.0, measured 18/11/2026). Licences: AGPL-3.0, GPL-3.0, MPL-2.0, EUPL-1.2, Apache-2.0 (kept out for size)
+https://github.com/rustdesk/rustdesk/releases/download/1.5.3/rustdesk.sbom.json	f7b20955e4e1c87fb12dbd5d93dc40322a479b0a514d87dd3aaca0485361f07d	cyclonedx	accepted
+https://github.com/career-ops-hq/career-ops/releases/download/career-ops-v1.40.0/career-ops-sbom.spdx.json	ca62f7ba00bbea5abbfb8bb5fe062ab0c44220c0019b8ea66ae1efbd16406ded	spdx	accepted
+https://github.com/grafana/grafana/releases/download/v13.3.1/grafana-v13.3.1.spdx.json	f7f9b5f52ea1fa839b7b0cc47cd31821260e7d6e752b47748d7abc4ca722e83a	spdx	refused: SPDX not conformant to spdx-schema-v2.3.1.json at packages/
+https://github.com/ultralytics/ultralytics/releases/download/v8.4.215/sbom.spdx.json	8e3ae02cb6623b3a386e21dce342c22193ba1f6c6b45752878ea76902c5706c3	spdx	accepted
+https://github.com/The-Vibe-Company/quivr/releases/download/v2.0.3/quivr-core.spdx.json	adf668b4c4e05ab20a82c5be749c4c8caf0ebffaf22d2561d9f89e9e54453059	spdx	accepted
+https://github.com/kovidgoyal/kitty/releases/download/v0.50.0/kitty-0.50.0.tar.xz.spdx.json	beca212d0c56396729abc1266124d641884b7301197c09f4c232b7ead34364c7	spdx	refused: SPDX not conformant
+https://github.com/grafana/loki/releases/download/v3.7.10/loki-v3.7.10.spdx.json	622c1349528e40f7fa015345327074549082e5db956d3d6ab3f26e04fdaece6e	spdx	refused: SPDX not conformant to spdx-schema-v2.3.1.json at packages/
+https://github.com/d2lang/d2/releases/download/v0.9.0/d2.spdx.json	efaf407d3142ee52de4f3e90864f3023110dd9f430f8220143d6f3d9de86e689	spdx	accepted
+https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.amd64.exe.spdx.sbom.json	5b673c00bf5daf84d6e541d706e0e2a87292199722a33d74ea1403a5967c29b5	spdx	accepted
+https://github.com/istio/istio/releases/download/1.32.0/istio-release.spdx	7c5b95b5f0234ece3b7ac3413538c5d36c0b55e2b146f263fe4a8319a6fced6a	spdx	refused: SPDX tag-value is not supported
+https://github.com/kubernetes/minikube/releases/download/v1.39.0/minikube_v1.39.0_sbom.spdx	18f23eb2d92d8a982f4d9a1213463fe927937e4692ef51c41b038d147bdeea91	spdx	refused: SPDX tag-value is not supported
+https://github.com/italia/developers-italia-api/releases/download/v1.4.0/developers-italia-api_1.4.0_linux_386.tar.gz.sbom.json	b0bd02257f5be8005cc2a261a2d46ab4508058ce9594186a2b02be24ea9c5651	spdx	accepted
+https://github.com/italia/pa-webinar/releases/download/v0.13.0/sbom.spdx.json	85ff08e73e1a4e73b499dd02a1dac2a026c600705b2d650a55a9d74bccecfbbf	spdx	accepted
+https://github.com/italia/publiccode-parser-go/releases/download/v5.4.3/publiccode-parser-go_Darwin_arm64.tar.gz.sbom.json	5edbde204013a0fd4c153cc1cf774b3748aea54a1c99df7994fcaa77ca5168cd	spdx	accepted
+https://github.com/italia/publiccode-crawler/releases/download/v6.1.0/publiccode-crawler_Darwin_arm64.tar.gz.sbom.json	76cc62aa8fc94a72b32d40a4971977c9138e89eb7b22646684e727486eeab06e	spdx	accepted
+https://github.com/balena-io/etcher/releases/download/v2.1.9/npm-sbom.json	055d3a32be9d28ebafcc83569f1b698cf260ca637e7327ca7d33d50eada99c0d	cyclonedx	refused: CycloneDX not conformant to bom-1.5
+https://github.com/eclipse-xfsc/oid4-vci-credential-retrieval-service/releases/download/v1.1.7/sbom.json	5ed588c032c2d395961a138b938c31ab7cff8929a1cb975f2f964f7e7803e59c	cyclonedx	refused: CycloneDX XML is not supported
+https://github.com/eclipse-xfsc/federated-catalogue/releases/download/qa-ready-2026-07-15/sbom-c243a65.json	a9b975c169d269f2a586b3e74ae525f15d420cd7ba6c00c4032fedff6df89f85	cyclonedx	accepted

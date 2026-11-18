@@ -15,6 +15,7 @@ applicability.CHAPTER_IV_DATE: const
 applicability.DEPENDS: const
 applicability.FULL_APPLICATION_DATE: const
 applicability.GUIDANCE: const
+applicability.GUIDANCE_PUBLISHED: const
 applicability.PERIOD_RULE: const
 applicability.READINGS: const
 applicability.RETENTION_YEARS: const
@@ -117,7 +118,9 @@ locker.ATTACHMENT_FORMATS: const
 locker.EvidenceLocker: class()
 locker.EvidenceLocker.__init__(self, ledger_path: str, product_id: str, product_version: str, tip_key: Optional[Tuple[Any, str]]=None, support_period_end: Optional[str]=None, allow_unlocked: bool=False)
 locker.EvidenceLocker.record_sbom(self, sbom: SBOMRecord, source_path: Optional[str]=None, store: bool=True, spec_version: str='1.6') -> Dict[str, Any]
-locker.EvidenceLocker.record_vulnerability(self, rec: VulnerabilityRecord, attachments: Optional[List[Dict[str, Any]]]=None) -> Dict[str, Any]
+locker.EvidenceLocker.match_components(self, queries: List[str]) -> Dict[str, Any]
+locker.EvidenceLocker.notice_consistency(self, notice: SRPNotice, now: Optional[datetime]=None) -> Dict[str, Any]
+locker.EvidenceLocker.record_vulnerability(self, rec: VulnerabilityRecord, attachments: Optional[List[Dict[str, Any]]]=None, components: Optional[List[str]]=None) -> Dict[str, Any]
 locker.EvidenceLocker.record_notice(self, notice: SRPNotice, drop_result: Optional[Dict[str, Any]]=None, divergence_reason: Optional[str]=None, imported: Optional[Dict[str, Any]]=None) -> Dict[str, Any]
 locker.EvidenceLocker.bind_notice(self, notice: SRPNotice, divergence_reason: Optional[str]=None, pending: Tuple[Dict[str, Any], ...]=()) -> List[Any]
 locker.EvidenceLocker.verify(self) -> Dict[str, Any]
@@ -219,9 +222,11 @@ sbom.cyclonedx_schema_check(d: Any) -> Tuple[str, str]
 sbom.dedup(components: List[SBOMComponent]) -> List[SBOMComponent]
 sbom.ecma_pattern(p: str) -> 're.Pattern[str]'
 sbom.installed_license(meta: Any) -> str
+sbom.is_ci_component(c: SBOMComponent) -> bool
 sbom.is_iri_reference(instance: Any) -> bool
 sbom.is_spdx_expression(value: str) -> bool
 sbom.is_spdx_id(value: str) -> bool
+sbom.is_version_range(version: str) -> bool
 sbom.marker_applies(marker: str) -> Optional[bool]
 sbom.pypi_purl(name: str, version: str) -> str
 sbom.reingest(raw: bytes, path: str, fmt: str, product_id: str, product_version: str) -> SBOMRecord
@@ -336,6 +341,12 @@ verify_pack.STATES_VOCABULARY: const
 verify_pack.SUBJECTS: const
 verify_pack.ledger_file_name_ok(v: Any) -> bool
 verify_pack.verify_pack(path: str, ledger_path: Optional[str]=None, trust_store: Optional[Dict[str, str]]=None, log_pubkey_hex: Optional[str]=None, require_sources: bool=False) -> Dict[str, Any]
+vex.ATTACHMENT_FORMATS: const
+vex.CSAF_FORM_ONLY: const
+vex.OPENVEX_CONTEXT: const
+vex.OPENVEX_SCHEMA: const
+vex.check_attachment(fmt: Any, doc: Any) -> Dict[str, Any]
+vex.check_file(path: str, fmt: str) -> Tuple[Dict[str, Any], Dict[str, Any]]
 vuln.CLOCK_SKEW: const
 vuln.EARLY_WARNING_HOURS: const
 vuln.FINAL_REPORT_DAYS_AFTER_FIX: const

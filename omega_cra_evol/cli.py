@@ -31,6 +31,7 @@ from typing import Any, Dict, List
 from . import __version__
 from .applicability import ROLES, STREAMS
 from .locker import EvidenceLocker
+from .vex import ATTACHMENT_FORMATS, check_file
 from .sbom import resolved_components, sbom_from_cyclonedx, sbom_from_installed, sbom_from_spdx
 from .signing import keygen, load_key, sign_pack
 from .notice_check import check_notice, load_json_object   # a duplicate key in --fields/--previous is refused, never last-wins
@@ -233,6 +234,80 @@ def _locker(a) -> EvidenceLocker:
     return EvidenceLocker(a.ledger, a.product, a.version, tip_key=key, support_period_end=getattr(a, "support_period_end", None))
 
 
+def _verify_seal(a: argparse.Namespace, p: argparse.ArgumentParser) -> int:
+    """spec/TIME_ANCHOR.md §10"""
+    from .ledger import Ledger
+    from .time_anchor import TimeAnchorNotRun, _pins_pem, make_timestamp_trust_fn
+    from .vuln import parse_utc
+    if a.pack_sha3 is not None and not re.fullmatch(r"[0-9a-f]{64}", a.pack_sha3):
+        p.error("verify-seal: --pack-sha3 must be 64 lower-case hex characters")
+    for k in a.sealer_pubkey or []:
+        if not re.fullmatch(r"[0-9a-f]{64}", k):
+            p.error("verify-seal: --sealer-pubkey must be 64 lower-case hex characters")
+    if a.tsa_cert is not None:
+        try:
+            _pins_pem(a.tsa_cert)
+        except (ValueError, OSError) as e:
+            p.error(f"verify-seal --tsa-cert: {e}")
+    try:
+        now = parse_utc(a.at).timestamp() if a.at else datetime.now(timezone.utc).timestamp()
+    except (ValueError, TypeError) as e:
+        p.error(f"verify-seal --at: {e}")
+    if not os.path.isfile(a.ledger):
+        _p({"ok": False, "reasons": ["ledger not found or not a regular file"], "seals": []}); return 1
+    lk = EvidenceLocker(a.ledger, "", "")       # verification only: nothing is appended
+    try:
+        lv = lk.verify()
+        entries = list(lk.ledger.entries()) if lv["chain_ok"] else []
+    except (OSError, ValueError) as e:
+        _p({"ok": False, "reasons": [f"ledger unreadable: {str(e)[:300]}"], "seals": []}); return 1
+    if not lv["chain_ok"]:
+        _p({"ok": False, "ledger": {"chain_ok": False, "failures": [str(x)[:300] for x in (lv.get("failures") or [])[:5]]},
+            "reasons": ["the ledger does not verify: no seal evaluated"], "seals": []}); return 1
+    last: Dict[str, Any] = {}
+    count: Dict[str, int] = {}
+    anchored = set()
+    for e in entries:
+        d = e.get("data") if isinstance(e, dict) else None
+        if not isinstance(d, dict):
+            continue
+        if d.get("kind") == "cra_pack_anchor" and isinstance(d.get("anchored_pack_sha3"), str):
+            anchored.add(d["anchored_pack_sha3"])
+        if d.get("kind") == "cra_longterm_seal":
+            lte = d.get("lte")
+            dg = lte.get("evidence_digest") if isinstance(lte, dict) else None
+            dg = dg if isinstance(dg, str) else ""
+            last[dg], count[dg] = e, count.get(dg, 0) + 1
+    ledger = {"chain_ok": True, "entries": lv["entries"]}
+    if not last:
+        _p({"ok": False, "ledger": ledger, "reasons": ["no seal in this ledger"], "seals": []}); return 1
+    if a.pack_sha3 is not None:
+        if a.pack_sha3 not in last:
+            _p({"ok": False, "ledger": ledger, "reasons": ["no seal of this digest in the ledger"], "seals": []}); return 1
+        last = {a.pack_sha3: last[a.pack_sha3]}
+    seals, not_run = [], None
+    for dg, e in last.items():
+        row: Dict[str, Any] = {"pack_sha3": dg, "ledger_idx": e.get("idx"), "records_in_ledger": count[dg],
+                               "anchored_pack": dg in anchored}
+        try:
+            lte = LongTermEvidence.from_dict(e["data"]["lte"])
+            fn = make_timestamp_trust_fn(lte, a.tsa_cert) if a.tsa_cert else None
+            v = lte.verify(now=now, timestamp_trust_fn=fn, trusted_pubs=set(a.sealer_pubkey) if a.sealer_pubkey else None)
+            if fn is not None:
+                v["time_anchor_log"] = fn.log
+        except TimeAnchorNotRun as ex:
+            not_run = str(ex)[:300]
+            v = {"ok": False, "reasons": [f"time anchor not checked here: {not_run}"], "temporal_trust": "not checked"}
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as ex:
+            v = {"ok": False, "reasons": [f"seal record malformed: {type(ex).__name__}: {str(ex)[:200]}"], "temporal_trust": "n/a"}
+        row["sealer"] = "pinned" if a.sealer_pubkey else "not pinned"
+        row["verify"] = v
+        seals.append(row)
+    ok = all(s["verify"].get("ok") is True for s in seals)
+    _p({"ok": ok, "ledger": ledger, "at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"), "seals": seals})
+    return 0 if ok else (74 if not_run is not None else 1)
+
+
 def main(argv: List[str] = None) -> int:
     try:
         return _main(argv)
@@ -275,11 +350,23 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--final-sent", help="instant the final report was submitted (ISO-8601 with zone)")
     s.add_argument("--assert-source", action="store_true", help="skip the live KEV/EUVD check for --source cisa_kev/enisa_euvd (recorded as 'asserted:…')")
     s.add_argument("--allow-overdue", action="store_true", help="exit 0 even if an applicable deadline is overdue (default: exit 1)")
+    s.add_argument("--component", action="append", metavar="QUERY", help="the affected component, looked up in the last SBOM recorded for this product and version: a purl, NAME or NAME@VERSION (repeatable; spec/RECORD_LINKS.md). No SBOM recorded: exit 2, nothing recorded")
+    s.add_argument("--allow-not-in-sbom", action="store_true", help="exit 0 even if a --component is not in the recorded SBOM (default: exit 1; recorded either way with in_sbom false)")
+    s.add_argument("--vex", metavar="FILE", help="attach this document to the record, checked for the format --vex-format declares (spec/VEX.md); a document that is not of that format: exit 2, nothing recorded")
+    s.add_argument("--vex-format", choices=sorted(ATTACHMENT_FORMATS), help="the format of --vex")
+    s = sub.add_parser("vex", help="check a VEX (or CSAF, CycloneDX, SPDX 3) document for its declared format; records nothing",
+                       description="Checks one file for the format it is declared to be (spec/VEX.md): openvex = OpenVEX 0.2.0 "
+                       "(official schema); cyclonedx-vex / cyclonedx-sbom = a CycloneDX BOM as `cra sbom` checks it (a VEX "
+                       "needs a non-empty vulnerabilities array); spdx-3.0 = SPDX 3.0.1 JSON-LD (official schema); csaf-2.0 = "
+                       "form only (the CSAF schema is not shipped). Exit 0 with the result, 2 with the reason. VEX statements "
+                       "are not compared with a vulnerability record or an SBOM.")
+    s.add_argument("file"); s.add_argument("--format", required=True, choices=sorted(ATTACHMENT_FORMATS), dest="vex_format")
     s = sub.add_parser("notice", help="build an SRP-aligned Art. 14 notice (dry-run drop file, never submitted)"); common(s)
     s.add_argument("--stream", default="vulnerability", choices=["vulnerability", "incident"]); s.add_argument("--stage", required=True, choices=["early_warning", "notification", "final_report"])
     s.add_argument("--fields", required=True, help="JSON file with the SRP fields (see `cra schema --template`)"); s.add_argument("--drop", required=True, help="drop folder")
     s.add_argument("--previous", help="JSON file with the previous stage's fields: carried-forward fields are copied from it")
     s.add_argument("--divergence-reason", help="why this notice's awareness differs from the recorded vulnerability event")
+    s.add_argument("--strict", action="store_true", help="exit 1 when the notice disagrees with the ledger (ledger_consistency findings: no vulnerability record for its id, deadline already passed, another product version, component not in the recorded SBOM); default: findings are printed, the exit code does not change")
     s = sub.add_parser("check-notice", help="re-check a notice drop file under the glossary it records (and, with --ledger, against its ledger record)")
     s.add_argument("drop", help="the drop file written by `cra notice`"); s.add_argument("--ledger", help="the ledger the notice was recorded in")
     s = sub.add_parser("import", help="import Art. 14 notices recorded by another tool (sbomify) as cra-srp/3 notices")
@@ -315,6 +402,15 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--tsa-hash", default="sha256", choices=("sha256", "sha3-256"), help="hash of the imprint for --print-imprint (default sha256: public TSAs refuse sha3-256)")
     s.add_argument("--tsa-cert", action="append", metavar="PEM", help="pin a TSA certificate (or a CA above it): the seal's RFC 3161 tokens are verified against it (signature, TSA, time, binding) and temporal_trust can be 'verified'; with --ts-source rfc3161 only; a token refused under the pin records nothing (exit 1); repeat for several")
     s.add_argument("--renew", help="JSON file with the previous seal (lte dict) to extend the chain")
+    s = sub.add_parser("verify-seal", help="verify the long-term seals recorded in a ledger (signatures, order, algorithm policy; with --tsa-cert the RFC 3161 time of every record); records nothing",
+                       description="spec/TIME_ANCHOR.md §10. For each sealed digest the last seal record of the ledger is "
+                       "verified. Exit 0: the ledger verifies and every evaluated seal is ok; 1: not so, or no seal; 74: the "
+                       "time anchor could not be run here (no usable openssl). Without --tsa-cert the times are NOT verified "
+                       "(temporal_trust: ASSUMED).")
+    s.add_argument("--ledger", required=True); s.add_argument("--pack-sha3", help="only the seal of this digest (64 hex)")
+    s.add_argument("--tsa-cert", action="append", metavar="PEM", help="pin a TSA certificate (or a CA above it): every record's RFC 3161 token is verified against it")
+    s.add_argument("--sealer-pubkey", action="append", metavar="HEX", help="pin the Ed25519 public key of the first record (who sealed); repeatable")
+    s.add_argument("--at", help="the instant the algorithm policy is evaluated at (ISO-8601 with zone; default: now)")
     s = sub.add_parser("attest", help="sign an in-toto statement (predicate art14-filing v0.2 or v0.1, DSSE, Ed25519) about a notice drop file and its ledger entry",
                        description="Writes a DSSE envelope (payloadType application/vnd.in-toto+json) whose Statement names the drop file's "
                        "bytes (sha256 and sha3_256) and states its stage, glossary, completeness, awareness instant, filing as declared, "
@@ -360,7 +456,7 @@ def _main(argv: List[str] = None) -> int:
     s.add_argument("--role", default="manufacturer", choices=list(ROLES)); s.add_argument("--stream", default="vulnerability", choices=list(STREAMS))
     s.add_argument("--at", help="the instant evaluated: is the reporting obligation in force then? (ISO-8601 with zone)")
     s.add_argument("--exploitation-aware", help="instant the reporter became aware of the ACTIVE EXPLOITATION (or, with --stream incident, of the "
-                                                "severe incident): does the Art. 14 obligation arise? (guidance C(2026) 5252 §217, non-binding)")
+                                                "severe incident): does the Art. 14 obligation arise? (Commission guidance C/2026/6013 §217, non-binding)")
     s.add_argument("--vulnerability-aware", help="instant the vulnerability itself became known (recorded; it never decides: §217)")
     s.add_argument("--placed-on-market", help="instant the product was placed on the market (the latest placing you know of)")
     s.add_argument("--substantially-modified", help="instant of a substantial modification (Art. 69(2)); whether it is substantial is yours to decide")
@@ -406,7 +502,16 @@ def _main(argv: List[str] = None) -> int:
         _p({"recorded": e["idx"], "components": len(rec.components), "resolved": n, "depth": rec.depth, "floor_met": e["data"]["sbom_floor_met"],
             "source": e["data"].get("source")})
         return 0 if e["data"]["sbom_floor_met"] else 1
+    if a.cmd == "vex":
+        try:
+            checked, _doc = check_file(a.file, a.vex_format)
+        except (OSError, ValueError) as e:
+            _say(f"cra vex: refused ({a.vex_format}): " + " ".join(str(e).split())[:500] + "\n")
+            return 2
+        _p(checked); return 0
     if a.cmd == "vuln":
+        if bool(a.vex) != bool(a.vex_format):
+            p.error("vuln: --vex and --vex-format go together")
         lk = _locker(a)
         source, exploited = a.source, a.exploited
         if a.source in ("cisa_kev", "enisa_euvd"):
@@ -425,16 +530,46 @@ def _main(argv: List[str] = None) -> int:
                                   status=a.status, exploitation_source=source, corrective_available_utc=a.fix_available,
                                   kind=("incident" if a.incident else "vulnerability"), early_warning_sent_utc=a.ew_sent,
                                   notification_sent_utc=a.notified, final_report_sent_utc=a.final_sent)
-        e = lk.record_vulnerability(rec); od = rec.overdue(); _p({"recorded": e["idx"], "deadlines": rec.deadlines(), "overdue": od})
-        return 0 if (not od["any_overdue"] or a.allow_overdue) else 1
+        att = None
+        if a.vex:
+            try:
+                checked, doc = check_file(a.vex, a.vex_format)
+            except (OSError, ValueError) as e:
+                _say(f"cra vuln: --vex refused ({a.vex_format}), nothing recorded: " + " ".join(str(e).split())[:500] + "\n")
+                return 2
+            att = [{"format": a.vex_format, "document": doc}]
+        try:
+            e = lk.record_vulnerability(rec, attachments=att, components=a.component)
+        except ValueError as ex:
+            if not a.component:
+                raise
+            _say("cra vuln: refused, nothing recorded: " + " ".join(str(ex).split())[:500] + "\n")
+            return 2
+        od = rec.overdue()
+        out = {"recorded": e["idx"], "deadlines": rec.deadlines(), "overdue": od}
+        absent = []
+        if a.component:
+            out["affected_components"], out["sbom_record"] = e["data"]["affected_components"], e["data"]["sbom_record"]
+            absent = [c["query"] for c in out["affected_components"] if not c["in_sbom"]]
+            for q in absent:
+                _say(f"cra vuln: warning: {q[:200]} is not in the SBOM recorded at entry {out['sbom_record']['idx']}\n")
+        if att:
+            out["attachments"] = [{k: v for k, v in x.items() if k != "document"} for x in e["data"]["attachments"]]
+            out["attachments"][0]["sha256"] = checked["sha256"]
+        _p(out)
+        return 0 if ((not od["any_overdue"] or a.allow_overdue) and (not absent or a.allow_not_in_sbom)) else 1
     if a.cmd == "notice":
         lk = _locker(a)
         fields = load_json_object(a.fields)
         prev = load_json_object(a.previous) if a.previous else None
         n = SRPNotice(stream=a.stream, stage=a.stage, fields=fields, previous_fields=prev)   # a new notice: the current glossary only
         lk.bind_notice(n, a.divergence_reason)   # a refused binding writes nothing (no drop file without its record)
-        r = DryRunDrop(a.drop).prepare(n); lk.record_notice(n, r, divergence_reason=a.divergence_reason); _p(r)
-        return 0 if r["complete"] else 1
+        cons = lk.notice_consistency(n)          # spec/RECORD_LINKS.md §2: findings, printed; the record does not change
+        r = DryRunDrop(a.drop).prepare(n); lk.record_notice(n, r, divergence_reason=a.divergence_reason)
+        for f in cons["findings"]:
+            _say(f"cra notice: warning: {f['code']}: {f['detail']}\n")
+        _p({**r, "ledger_consistency": cons})
+        return 0 if (r["complete"] and not (a.strict and cons["findings"])) else 1
     if a.cmd == "check-notice":
         r = check_notice(a.drop, a.ledger); _p(r)
         return 0 if r["verified"] else 1
@@ -568,6 +703,8 @@ def _main(argv: List[str] = None) -> int:
             v["time_anchor_log"] = fn.log
         _p({"seal": d, "verify": v})
         return 0 if v["ok"] else 1
+    if a.cmd == "verify-seal":
+        return _verify_seal(a, p)
     if a.cmd == "verify":
         for flag, val in (("--ledger", a.ledger), ("--trust-store", a.trust_store), ("--log-pubkey", a.log_pubkey)):
             if val is not None and (val == "" or val.startswith("-")):
@@ -599,7 +736,7 @@ def _main(argv: List[str] = None) -> int:
         _p(out)
         return 0 if (pc["ok"] and not kev["error"] and not eu["error"]) else 1
     if a.cmd == "obligations":
-        from .applicability import (art14_obligation, legacy_product_scope, reporting_in_force, retention_until,
+        from .applicability import (GUIDANCE_PUBLISHED, art14_obligation, legacy_product_scope, reporting_in_force, retention_until,
                                     support_period, update_available_until)
         if not (a.at or a.exploitation_aware or a.placed_on_market or a.update_issued):
             p.error("obligations: give at least one of --at, --exploitation-aware, --placed-on-market, --update-issued")
@@ -617,6 +754,7 @@ def _main(argv: List[str] = None) -> int:
                 ob["reporting"] = reporting_in_force(a.role, a.at, a.stream)
             if a.exploitation_aware:
                 ob["art14_obligation"] = art14_obligation(a.exploitation_aware, a.role, a.stream, a.vulnerability_aware)
+                ob["guidance_published"] = GUIDANCE_PUBLISHED     # printed here only: the record's text does not change
             if a.placed_on_market:
                 ob["legacy_scope"] = legacy_product_scope(a.placed_on_market, a.substantially_modified)
                 ob["retention"] = retention_until(a.placed_on_market, a.support_period_end)

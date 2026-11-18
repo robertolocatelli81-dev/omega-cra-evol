@@ -31,11 +31,12 @@ from .outputs import OutputNotWritten, TipNotWritten, commit_tmp, refuse_directo
 from .canonical import deep_recursion, floatfree, sha3_hex
 from .ledger import Ledger
 from .longterm import AlgorithmPolicy, LongTermEvidence, Signer
+from .vex import ATTACHMENT_FORMATS as _ATTACHMENT_FORMATS, check_attachment
 from .sbom import INGESTED_FORMATS, MAX_SOURCE_BYTES, SBOMRecord, reingest, resolved_components
 from .srp_notice import SRPNotice
 from .vuln import VulnerabilityRecord, parse_utc
 
-ATTACHMENT_FORMATS = {"cyclonedx-vex", "csaf-2.0", "openvex", "cyclonedx-sbom", "spdx-3.0"}
+ATTACHMENT_FORMATS = set(_ATTACHMENT_FORMATS)      # the labels of an attachment; each is checked (spec/VEX.md, 0.13.0)
 RETENTION_YEARS = 10
 PACK_KIND = "cra_evidence_pack/1"   # frozen: written in every pack since 0.1.0 and checked by the four verifiers; kept across the 0.10.0 rename
 LEGAL_BASIS = ("Reg. (EU) 2024/2847 (Cyber Resilience Act): Annex I Part II(1) SBOM; Art. 14(2) actively exploited "
@@ -174,26 +175,132 @@ class EvidenceLocker:
                         pass
             raise
 
-    def record_vulnerability(self, rec: VulnerabilityRecord, attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    # ── links between records (spec/RECORD_LINKS.md, 0.13.0) ─────────────
+    def _last_sbom(self) -> Optional[Dict[str, Any]]:
+        """the last cra_sbom ledger entry of this product and version, or None"""
+        last = None
+        for e in self.ledger.entries():
+            d = e.get("data") if isinstance(e, dict) else None
+            if (isinstance(d, dict) and d.get("kind") == "cra_sbom" and d.get("product_id") == self.product_id
+                    and d.get("product_version") == self.product_version):
+                last = e
+        return last
+
+    @staticmethod
+    def _sbom_components(entry: Dict[str, Any]) -> List[Dict[str, str]]:
+        sb = entry["data"].get("sbom")
+        comps = sb.get("components") if isinstance(sb, dict) else None
+        return [{k: (c.get(k) if isinstance(c.get(k), str) else "") for k in ("name", "version", "purl")}
+                for c in (comps if isinstance(comps, list) else []) if isinstance(c, dict)]
+
+    def match_components(self, queries: List[str]) -> Dict[str, Any]:
+        """spec/RECORD_LINKS.md §1: each query (a purl, `name` or `name@version`) looked up in the last SBOM record of
+        this product and version. ValueError when a query is not a usable string or no SBOM is recorded."""
+        for q in queries:
+            if not isinstance(q, str) or not q.strip() or len(q) > 1024:
+                raise ValueError("component: a query is a non-empty string of at most 1,024 characters (a purl, name or name@version)")
+        entry = self._last_sbom()
+        if entry is None:
+            raise ValueError(f"no SBOM recorded for {self.product_id} {self.product_version}: record it with cra sbom first")
+        comps = self._sbom_components(entry)
+        cut = lambda s, chars: re.split("[" + re.escape(chars) + "]", s, maxsplit=1)[0]   # noqa: E731
+        out = []
+        for q in queries:
+            q = q.strip()
+            if q.startswith("pkg:"):
+                versioned = "@" in cut(q, "?#")
+                m = [c for c in comps if c["purl"] and (cut(c["purl"], "?#") == cut(q, "?#") if versioned
+                                                         else cut(c["purl"], "@?#") == cut(q, "?#"))]
+            else:
+                i = q.rfind("@")
+                name, ver = (q[:i], q[i + 1:]) if i > 0 else (q, None)
+                m = [c for c in comps if c["name"] == name and (ver is None or c["version"] == ver)]
+            out.append({"query": q, "in_sbom": bool(m), "match_count": len(m), "matches": m[:10]})
+        d = entry["data"]
+        src = d.get("source") if isinstance(d.get("source"), dict) else {}
+        return {"affected_components": out,
+                "sbom_record": {"idx": entry.get("idx"), "record_sha3": d.get("record_sha3"),
+                                "serial_number": d["sbom"].get("serialNumber", "") if isinstance(d.get("sbom"), dict) else "",
+                                "source_sha256": src.get("sha256") or ""}}
+
+    def notice_consistency(self, notice: SRPNotice, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """spec/RECORD_LINKS.md §2: what the notice says against what this ledger holds. Findings, never a refusal
+        (the awareness binding of bind_notice is the refusal); nothing is written."""
+        findings: List[Dict[str, str]] = []
+        checked: List[str] = []
+        ids = sorted({str(notice.case_value(k)).strip() for k in ("cve_id", "euvd_id") if _present(notice.case_value(k))})
+        entries = [e.get("data") for e in self.ledger.entries() if isinstance(e, dict) and isinstance(e.get("data"), dict)]
+        if ids:
+            checked.append("no_vulnerability_record")
+            known = {str(d.get("vuln_id", "")).strip().upper() for d in entries
+                     if d.get("kind") == "cra_vuln" and d.get("product_id") == self.product_id}
+            for i in ids:
+                if i.upper() not in known:
+                    findings.append({"code": "no_vulnerability_record",
+                                     "detail": f"{i[:80]}: no vulnerability record of {self.product_id} in this ledger "
+                                               "(the Art. 14 clock of this notice is not recorded)"})
+        try:
+            due = notice.deadline_utc()
+        except (ValueError, TypeError):
+            due = None
+        if due:
+            checked.append("deadline_passed")
+            now = now or datetime.now(timezone.utc)
+            if parse_utc(due) < now:
+                findings.append({"code": "deadline_passed",
+                                 "detail": f"due {due}, prepared {now.isoformat(timespec='seconds')}"})
+        pv = notice.fields.get("product_version")
+        if _present(pv):
+            checked.append("product_version_differs")
+            if str(pv).strip() != self.product_version:
+                findings.append({"code": "product_version_differs",
+                                 "detail": f"the notice says {str(pv)[:80]!r}, the ledger records {self.product_version[:80]!r}"})
+        cn = notice.fields.get("component_name")
+        entry = self._last_sbom() if _present(cn) else None
+        if entry is not None:
+            checked.append("component_not_in_sbom")
+            text = str(cn).strip().lower()
+            tokens = {text} | {t for t in re.split(r"[\s@,;:()]+", text) if t}
+            if not any(c["name"].lower() in tokens for c in self._sbom_components(entry) if c["name"]):
+                findings.append({"code": "component_not_in_sbom",
+                                 "detail": f"{str(cn)[:120]!r}: no component of the SBOM recorded at entry {entry.get('idx')} has "
+                                           "that name (names compared, case ignored)"})
+        return {"findings": findings, "checked": checked}
+
+    def record_vulnerability(self, rec: VulnerabilityRecord, attachments: Optional[List[Dict[str, Any]]] = None,
+                             components: Optional[List[str]] = None) -> Dict[str, Any]:
         """attachments: standard documents embedded content-bound, e.g. [{"format": "cyclonedx-vex", "document": {...}}]
-        (formats: ATTACHMENT_FORMATS) — what Dependency-Track/Snyk exchange natively, kept verbatim next to the record."""
+        (formats: ATTACHMENT_FORMATS) — what Dependency-Track/Snyk exchange natively, kept verbatim next to the record.
+        From 0.13.0 each document is checked for its declared format (spec/VEX.md, omega_cra_evol.vex.check_attachment):
+        one that is not of that format is refused (ValueError `attachment <i> (<label>): <why>`), nothing recorded; the
+        entry kept in the record gains `schema_check`. components: queries (purl, `name`, `name@version`) looked up
+        in the last SBOM record of this product and version (spec/RECORD_LINKS.md §1): the record gains
+        `affected_components` and `sbom_record`; no SBOM recorded is a ValueError."""
         if rec.product_id != self.product_id:
             raise ValueError(f"record is for product {rec.product_id!r}, this locker is for {self.product_id!r}")
         att = []
-        for a in attachments or []:
+        for i, a in enumerate(attachments or []):
+            if not isinstance(a, dict):
+                raise ValueError(f"attachment {i}: not an object with format and document")
             fmt, doc = a.get("format"), a.get("document")
-            if fmt not in ATTACHMENT_FORMATS or not isinstance(doc, dict):
-                raise ValueError(f"attachment: format must be one of {sorted(ATTACHMENT_FORMATS)} and document a JSON object")
+            if not isinstance(fmt, str) or fmt not in ATTACHMENT_FORMATS or not isinstance(doc, dict):
+                raise ValueError(f"attachment {i}: format must be one of {sorted(ATTACHMENT_FORMATS)} and document a JSON object")
+            try:
+                checked = check_attachment(fmt, doc)
+            except ValueError as e:
+                raise ValueError(f"attachment {i} ({fmt}): {e}") from None
             doc = floatfree(doc)
-            att.append({"format": fmt, "document": doc, "document_sha3": sha3_hex(doc)})
+            att.append({"format": fmt, "document": doc, "document_sha3": sha3_hex(doc),
+                        **{k: v for k, v in checked.items() if k in ("schema_check", "format_not_met", "format_not_met_examples")}})
         try:
             with deep_recursion():                # a verbatim third-party attachment may nest deeply: bounded by the ledger line rule, never a crash
                 body = asdict(rec)
         except RecursionError:
             raise ValueError("record nests too deep to be serialised: not written") from None
         body["event_kind"] = body.pop("kind")     # the record's own kind (vulnerability|incident) must never shadow the ledger kind
+        link = self.match_components(list(components)) if components else {}     # refused before anything is written
         return self._append({"kind": "cra_vuln", **body, "deadlines": rec.deadlines(), "overdue": rec.overdue(),
-                             "attachments": att})
+                             "attachments": att, **link})
 
     def record_notice(self, notice: SRPNotice, drop_result: Optional[Dict[str, Any]] = None,
                       divergence_reason: Optional[str] = None, imported: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -1,0 +1,14 @@
+Release SBOMs kept unmodified (gzip -9 -n of the downloaded bytes; the tests check the sha256 of the decompressed
+bytes). Downloaded on 18/11/2026 from the URLs below; the sha256 is that of the asset as measured the same day in a
+measurement of 41 release SBOMs. Each project's licence (GitHub licence API and the LICENSE file on
+the default branch, read 18/11/2026) is kept next to it; docker/compose's NOTICE as well.
+
+5cd10369a2fa1414475357c5b8ef60c269b920d2122635e968e3591ddc19d909  codebase-memory-mcp_v0.12.1_sbom.json.gz (decompressed)
+  https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.12.1/sbom.json  — MIT (LICENSE-codebase-memory-mcp-MIT)
+  SPDX 2.3, 16 packages, no DESCRIBES relationship (SPDX 2.3 §11.1)
+3ed77f6d576a9f4986e395bb121f294b6359e7727320c89caee6a4bb4a1b638e  docker-compose_v5.8.0_darwin-aarch64.sbom.json.gz (decompressed)
+  https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-darwin-aarch64.sbom.json  — Apache-2.0 (LICENSE-docker-compose-Apache-2.0, NOTICE-docker-compose)
+  in-toto Statement v1, predicateType https://spdx.dev/Document, SPDX 2.3 predicate
+4e8c27a168097842772b6b6be72a7d45b1ac67140fa672414f68ac8f5e2f93fa  k9s_v0.51.0_Darwin_amd64.tar.gz.sbom.json.gz (decompressed)
+  https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_Darwin_amd64.tar.gz.sbom.json  — Apache-2.0 (LICENSE-k9s-Apache-2.0)
+  SPDX 2.3 (syft 0.96.0), one absolute fileName (§8.1), files without SHA1 (§8.4)

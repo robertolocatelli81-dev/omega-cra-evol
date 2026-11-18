@@ -1,0 +1,13 @@
+VEX documents found on GitHub by code search on 18/11/2026, kept unmodified (sha256 of the file as downloaded). Each
+repository's licence was read the same day (GitHub licence API and the LICENSE file at the commit) and is kept next to
+the document.
+
+879dd69fe327ecbe5a306ed3532499f8493ce627febd6b000f97ea03bb40368b  fallow_openvex.json
+  https://raw.githubusercontent.com/fallow-rs/fallow/bf272e195077ddaacabc5c86b32356e6d97bcda8/.vex/openvex.json  — MIT (LICENSE-fallow-MIT)
+  OpenVEX 0.2.0, one statement: conformant to the OpenVEX schema
+f06a24984004fcc5699a08e64b7b0c6fc4a2486ee81ec77dfa9f798b95d400af  asvs_bom.vex.json
+  https://raw.githubusercontent.com/Santandersecurityresearch/asvs/21ba0570eb2700f62f34eb99c78393b99d5f62fb/bom.vex.json  — MIT (LICENSE-asvs-MIT)
+  OpenVEX 0.2.0 context, `statements` empty and two members the schema does not admit (`products`, `last_updated`)
+e1a8917ca24b39134d3be498175fec5f42fdc0047d5d908ed2288dc06a693153  openvex_spec_context.json
+  https://raw.githubusercontent.com/openvex/spec/93139bd2c65390b504e47f82f11c50451289f93a/ns/v0.2.0/context.json  — CC0-1.0 (omega_cra_evol/data/openvex/LICENSE-CC0-1.0, the LICENSE of that commit)
+  the OpenVEX JSON-LD context: not a VEX document (0.12.0 kept it under any label)

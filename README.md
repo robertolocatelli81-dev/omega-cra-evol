@@ -147,6 +147,21 @@ commit, fresh virtual environments, every job of `.github/workflows/ci.yml` run 
 - The notice schema follows ENISA's SRP glossary "Version 1.6" of 21/10/2026: 49 table rows, 43 numbered fields, in
   `spec/sources/enisa_srp_glossary_20261112.json`.
 
+Measured on 18/11/2026 on the code of the next release (0.13.0, not yet published) with documents published on GitHub:
+
+- 39 SBOM files attached to releases (28 of the most-starred repositories with an SBOM asset, 11 of Italian and EU
+  public-sector organisations): 27 recorded with the floor met — one of them, docker/compose's, an SPDX document
+  inside an in-toto Statement; 4 refused as not conformant, each confirmed with the official schema outside this tool
+  (kitty: an empty checksum; etcher: 40 URLs that are not IRI references; grafana and loki: `SPDXID` values the SPDX
+  2.3.1 schema does not admit); 8 refused by format (5 CycloneDX XML, 2 SPDX tag-value, 1 file that is not an SBOM).
+  No crash.
+- 13 OpenVEX documents: 8 accepted as OpenVEX, 5 refused (four with no statement, one file that is not a VEX); none
+  accepted under another label.
+
+Repository, tag, URL and sha256 of the documents read from the network are in
+`tests/data/real_release_sboms_20261118/NETWORK.tsv` and `tests/data/real_vex_20261118/NETWORK.tsv` (run with
+`CRA_REAL_NET=1`); six documents under MIT, Apache-2.0 or CC0-1.0 are kept in the repository with their licences.
+
 ## Install
 
 ```
@@ -160,6 +175,18 @@ Without `[schema]` (`jsonschema[format-nongpl]`) `cra sbom --from-cyclonedx` / `
 (CycloneDX 1.2 … 1.7, SPDX 2.2, 2.3 and 3.0.1), or whose version has no schema here, is refused unless
 `--allow-nonconformant` is given (then recorded, marked, never floor met). A refused document exits 2 with one line on
 stderr and nothing is written; recorded with the floor not met exits 1. See the CHANGELOG, 0.11.0.
+
+What `cra sbom` reads is JSON. Other serialisations are refused by name, with the conversion (`spec/SBOM_INGEST.md`,
+rule 11):
+
+| The file is | Convert it with |
+|---|---|
+| SPDX tag-value (`.spdx`) | `pyspdxtools -i F.spdx -o F.spdx.json --novalidation` ([spdx/tools-python](https://github.com/spdx/tools-python)); measured on 18/11/2026 with spdx-tools 0.8.5 on the release SBOMs of istio 1.32.0 and minikube v1.39.0: the converted documents are recorded, schema conformant |
+| CycloneDX XML | `cyclonedx convert --input-file F.xml --output-file F.json` ([CycloneDX/cyclonedx-cli](https://github.com/CycloneDX/cyclonedx-cli), the command of its README; not run by this project) |
+| Syft JSON | `syft convert F -o cyclonedx-json` (or `-o spdx-json`) |
+| a zip or tar archive of SBOMs | extract it and record each document |
+
+The stored bytes are then those of the converted file, not of the original.
 
 The command is `cra` (also installed as `omega-cra-evol`, the name `pipx run` and `uvx` look for); the Python package is
 `omega_cra_evol`.
@@ -186,14 +213,16 @@ network by default):
 
 | Command | What it does |
 |---|---|
-| `cra sbom --from-cyclonedx F` / `--from-spdx F` | records an SBOM; the generator's document is checked against its official schema, hashed and stored byte for byte |
-| `cra vuln --id ID --aware T [--exploited] [--incident]` | records a vulnerability or severe-incident event and computes the Art. 14 deadlines from the declared awareness instant |
+| `cra sbom --from-cyclonedx F` / `--from-spdx F` | records an SBOM (CycloneDX 1.2–1.7 JSON, SPDX 2.2 / 2.3 JSON, SPDX 3.0.1 JSON-LD, or one of them inside an in-toto Statement); the generator's document is checked against its official schema, hashed and stored byte for byte; a repeated `bom-ref` (1.4+) or `SPDXID` is refused; SPDX rules the schema does not express are reported with their section |
+| `cra vuln --id ID --aware T [--exploited] [--incident] [--component Q] [--vex F --vex-format L]` | records a vulnerability or severe-incident event and computes the Art. 14 deadlines from the declared awareness instant; `--component` names the affected component of the recorded SBOM (purl, `NAME` or `NAME@VERSION`); `--vex` attaches a document checked for its declared format |
+| `cra vex F --format L` | checks an OpenVEX 0.2.0, CycloneDX VEX, SPDX 3.0.1 or CSAF 2.0 (form only) document for the format it declares; records nothing |
 | `cra schema --stream S --template STAGE` | prints the fields of a stage in the ENISA glossary vocabulary |
-| `cra notice --stage STAGE --fields F --drop D` | builds the notice payload, lists missing required fields, records it; never submits it |
+| `cra notice --stage STAGE --fields F --drop D [--strict]` | builds the notice payload, lists missing required fields, records it; says where it disagrees with the ledger (no vulnerability record for its CVE, deadline already passed, component not in the recorded SBOM); never submits it |
 | `cra import sbomify --report R --filing F …` | imports the notices recorded in sbomify, documents kept byte for byte |
 | `cra check-notice DROP [--ledger L]` | re-checks a notice under the glossary it records |
 | `cra attest DROP` / `cra verify-attestation ENV` | signs / verifies the `art14-filing` attestation of a notice: v0.2 (default: with its CVE / EUVD identifiers and an optional case reference) or v0.1 |
 | `cra pack`, `cra sign`, `cra seal`, `cra verify` | evidence pack anchored in the ledger, Ed25519 signature (seed file or AWS KMS), renewable seal, offline verification |
+| `cra verify-seal --ledger L [--tsa-cert PEM]` | verifies the seals recorded in a ledger: signatures, order, algorithm policy, and with `--tsa-cert` the RFC 3161 time of every record |
 | `cra feeds ID` | read-only network checks: OSV positive control, CISA KEV / ENISA EUVD exploitation signal |
 | `cra obligations` | which obligations are in force for a role at an instant, and the horizons counted in years (Art. 13, 14, 24(3), 69, 71); both readings of a start date, 00:00 UTC and 00:00 Brussels; never reads the clock |
 
@@ -206,6 +235,13 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
 - **What a verified attestation guarantees** (with `--drop` and `--ledger`): these exact notice bytes, under this glossary and these rules, with this
   completeness and deadline, sit at this entry of an intact ledger, and a key in your trust store signed the statement.
 - **Not a conformity assessment, not CE marking**, not legal advice.
+- **"conformant" means conformant to the schema file named next to it** (`schema_check: conformant to
+  bom-1.6.schema.json`), plus the uniqueness of `bom-ref` / `SPDXID` — not conformant to the whole CycloneDX or SPDX
+  specification. The SPDX 2.x rules checked beyond the schema are four and are listed in `source.spec_rules`; BSI
+  TR-03183-2 is reported only as a format-version notice (`source.bsi_tr_03183_2`), no field of the TR is checked.
+- **A VEX is checked for its format, not for its content:** its statements are not compared with the vulnerability
+  record or with the SBOM. CSAF 2.0 is checked for its form only (the CSAF schema is not shipped). `--component` says
+  which recorded component the manufacturer named, not that the product is affected.
 - **Not the official CSIRT/ENISA channel.** The SRP is a web portal; ENISA's FAQ (re-read 12/11/2026) says no API is
   provided at its initial release. A person submits the notice; this tool prepares, records and verifies it.
 - **The awareness instant is the manufacturer's declaration** (glossary rows v26 / i37): the evidence shows that it was
@@ -219,7 +255,7 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
   token. An RFC 3161 token of a seal must stamp that seal record (`cra seal --print-imprint`; the digest, the chain
   before it and the record's own fields, `spec/TIME_ANCHOR.md`) and gives the record its time; it is verified —
   signature, binding, time, TSA, with the signer named either way RFC 5652 allows — only against a TSA certificate you pin (`cra seal --tsa-cert`, or
-  `omega_cra_evol.time_anchor.make_timestamp_trust_fn`); without a pin `temporal_trust` stays ASSUMED. Revocation of
+  `cra verify-seal --tsa-cert` later, or `omega_cra_evol.time_anchor.make_timestamp_trust_fn`); without a pin `temporal_trust` stays ASSUMED. Revocation of
   the TSA certificate is not checked. OpenTimestamps tokens are stored after a shape check and not verified.
 - **Verifiers:** the JavaScript, Go and Rust verifiers and cryptovalid's are by the same author as this tool; they are
   separate implementations of a written profile, not separate parties.

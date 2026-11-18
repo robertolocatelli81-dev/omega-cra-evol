@@ -2,6 +2,97 @@
 
 ## Unreleased (0.13.0)
 
+- **An SPDX 2.2 or 2.3 document that repeats an `SPDXID` is not conformant** (`spec/SBOM_INGEST.md`, SPDX rule 8, written
+  before the code; changes verdicts). §6.3, §7.2, §8.2 and §9.1 of the text: `SPDXRef-[idstring]` "where [idstring] is a
+  unique string"; the JSON schemas cannot say it and 0.12.0 recorded such a document as conformant (measured on
+  18/11/2026 on a real release SBOM with one identifier repeated: exit 0, no warning). Refused with `SPDX not conformant
+  to SPDX-2.x §7.2 (SPDXID unique): '<value>' appears <n> times`; recorded with `--allow-nonconformant`, floor not met;
+  `source.spdxid_repeated` and `source.spdxid_repeated_examples`. None of the 18 SPDX 2.3 release SBOMs measured that
+  day repeats an identifier.
+- **"conformant" names the schema, and the rules of the SPDX text the schema does not express are reported with their
+  section** (SPDX rule 9; reported, not refused). `source.schema_check` says `conformant to <schema file>` and nothing
+  more; `source.spec_rules` lists, for an SPDX 2.x document, each rule not met with its section, a count and the first
+  three cases: §8.1 a file name is relative, §8.4 a file has a SHA1 checksum, §11.1 DESCRIBES when there is more than
+  one package, and for SPDX 2.2 the idstring of §7.2 (for 2.3 the 2.3.1 schema refuses it). Measured on the 18 SPDX 2.3
+  release SBOMs of 18/11/2026: derailed/k9s v0.51.0 (§8.1 once, §8.4 three files), DeusData/codebase-memory-mcp v0.12.1
+  (§11.1) and the SPDX document inside docker/compose v5.8.0's Statement (§8.4, one file) are reported; `pyspdxtools`
+  0.8.5 reports the first two the same way. Three other findings of `pyspdxtools` on those documents are not taken (an
+  undeclared `LicenseRef-`, `file://` cross references, a licence identifier read as an exception): the text does not
+  support them.
+- **The SPDX 2.3.1 schema refuses two release SBOMs that 0.12.0 accepted** (a consequence of SPDX rule 6, above;
+  measured after that entry was written). grafana/grafana v13.3.1 (30 of 3,819 identifiers) and grafana/loki v3.7.10
+  (9 of 486) have `SPDXID` values with `+` or `_`, which §7.2 does not allow ("letters, numbers, `.` and/or `-`"); the
+  2.3 schema had no pattern, the 2.3.1 schema has `^SPDXRef-[a-zA-Z0-9.-]+$`. They are refused with the schema's
+  message, or recorded with `--allow-nonconformant`. The sentence above about 63 documents holds for those 63; these
+  two are outside them.
+- **An SBOM inside an in-toto Statement is read** (rule 10). A JSON object whose `_type` is the in-toto Statement v1 or
+  v0.1 and whose `predicateType` is `https://cyclonedx.org/bom` or `https://spdx.dev/Document` (also with `/v<version>`)
+  is ingested through its `predicate`; the stored bytes and the sha256 are the Statement's; `source.wrapper`,
+  `source.wrapper_predicate_type`, `source.wrapper_subjects`. The Statement is not a signature and nothing says who
+  made it; a DSSE envelope, another `_type` or another predicate type is refused by name. Measured: the SBOM
+  docker/compose attaches to v5.8.0 (refused by 0.12.0) is recorded, floor met.
+- **Formats not read are refused with the way to convert them** (rule 11). Syft JSON is named and refused with `syft
+  convert <file> -o cyclonedx-json`; SPDX tag-value with `pyspdxtools -i <file>.spdx -o <file>.spdx.json --novalidation`
+  (spdx/tools-python); CycloneDX XML with `cyclonedx convert --input-file <file>.xml --output-file <file>.json`
+  (CycloneDX/cyclonedx-cli). Measured on 18/11/2026 with spdx-tools 0.8.5: the tag-value SBOMs of istio 1.32.0 and
+  minikube v1.39.0, converted with that command, are recorded (`conformant to spdx-schema-v2.3.1.json`, floor met). The
+  cyclonedx-cli command is the one of its README, not run here (the tool is 80 MB). Reading CycloneDX XML and SPDX
+  tag-value directly is not done in 0.13.0.
+- **The SBOM floor counts versions, not ranges, and not CI actions** (changes verdicts). A component whose version
+  contains `<`, `>`, `=`, `,`, `|`, `^`, `*` or white space, or starts with `~`, and a component whose purl is
+  `pkg:githubactions/…`, are no longer resolved components; `source.versions_not_resolved` and `source.ci_components`
+  count them. Measured: the SPDX document GitHub's dependency graph gave for psf/requests on 18/11/2026 had 16
+  "resolved" components in 0.12.0, 10 of them GitHub Actions and 4 ranges; here 2 (the pinned development packages).
+  The number of resolved components of the 26 release SBOMs accepted before and after this change is the same.
+- **A notice of BSI TR-03183-2 v2.1.0** (never a refusal). `source.bsi_tr_03183_2.format_minimum_met` is false for
+  CycloneDX 1.2–1.5 and SPDX 2.x: §4 of the TR asks CycloneDX 1.6 or SPDX 3.0.1 "or higher". The CRA does not make the
+  TR binding and no other field of the TR is checked.
+- **A document attached to a vulnerability record is checked for the format it declares; `cra vex`, `cra vuln --vex`**
+  (`spec/VEX.md`, written before the code; changes what the API accepts). Until 0.12.0
+  `record_vulnerability(attachments=…)` kept any JSON object under any of the five labels: measured on 13 documents
+  found on GitHub, 39 of 39 (document, label) pairs tried were accepted, wrong labels and the OpenVEX JSON-LD context
+  among them. Now `openvex` is the `@context` of 0.2.0 and the OpenVEX 0.2.0 JSON schema (openvex/spec `93139bd`,
+  CC0-1.0, in `omega_cra_evol/data/openvex/`); `cyclonedx-vex` and `cyclonedx-sbom` a CycloneDX BOM as `cra sbom` checks
+  it (a VEX needs a non-empty `vulnerabilities`); `spdx-3.0` the SPDX 3.0.1 schema; `csaf-2.0` the form only (the
+  five required properties of `document`): the CSAF schema is not shipped (the oasis-tcs/csaf repository is under the
+  OASIS IPR policy; GitHub reports no licence) and `schema_check` says `form only (CSAF 2.0 schema not shipped)`. A
+  document that is not of its declared format is refused with the reason and nothing is recorded; the entry kept gains
+  `schema_check`. A value that does not meet a `format` of the OpenVEX schema is reported (`format_not_met`), not
+  refused: in JSON Schema 2020-12 `format` is an annotation. On the 13 documents: 8 accepted as `openvex`, 5 refused
+  (four with an empty `statements`, the JSON-LD context), and all 13 refused under each of the other four labels.
+  `cra vex FILE --format LABEL` checks a file and records nothing (exit 0 or 2); `cra vuln --vex FILE --vex-format
+  LABEL` attaches it. VEX statements are not compared with the record or with an SBOM.
+- **`cra vuln --component`: the vulnerability record names the component of the recorded SBOM**
+  (`spec/RECORD_LINKS.md` §1, written before the code). Each query (a purl, `NAME` or `NAME@VERSION`) is looked up in
+  the last SBOM record of the product and version; the record gains `affected_components` (query, `in_sbom`, the
+  matches) and `sbom_record` (which SBOM record). No SBOM recorded: exit 2, nothing recorded. A component that is not
+  in the SBOM is recorded as such and the command exits 1 (`--allow-not-in-sbom`: 0). A record written without
+  `--component` has the keys it always had. No vulnerability database is queried with the SBOM.
+- **`cra notice` says where the notice disagrees with the ledger** (`spec/RECORD_LINKS.md` §2). `ledger_consistency`
+  in the output, and one warning line each on stderr: no vulnerability record for the notice's CVE / EUVD id, a
+  deadline already passed when the notice is prepared, a product version that is not the ledger's, a `component_name`
+  that names no component of the recorded SBOM. Measured with 0.12.0: a notice with all of the first, second and
+  fourth was recorded with exit 0 and no warning. The record and the drop file do not change; the exit code changes
+  only with `--strict`.
+- **`cra verify-seal`: the seals of a ledger are verified from the command line** (`spec/TIME_ANCHOR.md` §10). Until
+  0.12.0 a seal was verified when made, or through the Python API. The command verifies the ledger, then for each
+  sealed digest the last seal record: signatures, order, algorithm policy at `--at`, and with `--tsa-cert` the RFC 3161
+  time of every record; `--sealer-pubkey` pins who sealed. Without `--tsa-cert` the output says the times are ASSUMED.
+  Exit 0, 1, or 74 when openssl cannot be run. `cra verify` is unchanged.
+- **The Commission guidance is cited as published** (`spec/LEGAL_BASIS.md`, re-check of 18/11/2026): C/2026/6013, OJ C,
+  17.11.2026 (the draft was C(2026) 5252), §8 "not binding", §210, §213, §217, §218, §233 read; Regulation (EU) 2025/327,
+  Article 104, which replaces Art. 13(4) and 31(3) of the CRA and inserts Art. 32(5a), is recorded (no effect on what
+  this tool computes). `cra obligations` prints `guidance_published` (`applicability.GUIDANCE_PUBLISHED`); the
+  `interpretation` text written into every vulnerability record still cites the draft, §217 with the same words: its
+  bytes are those of the records the art14-filing vectors are generated from, and they do not change.
+- **Positive controls of the tests added on 18/11/2026 (evening)**, each file run on the code of commit `c215a64` (before
+  these changes; Python 3.11, jsonschema, cryptography): `test_sbom_rules_20261118b` 6 failures and 15 errors of 24
+  tests (1 skipped: the network), `test_vex_declared_format_20261118` 5 failures and 14 errors of 21 (2 skipped),
+  `test_record_links_20261118` 1 failure and 12 errors of 13, `test_verify_seal_20261118` 3 failures and 3 errors of 6;
+  on this code all four pass. 30 mutants chosen by hand on the new lines of `sbom.py`, `vex.py`, `locker.py` and
+  `cli.py`: 27 killed by these four files as first written, the other 3 after one case each was added (an id in lower
+  case in the notice, `--strict` on a complete notice, the seal evaluated after a renewal). With `CRA_REAL_NET=1` the two network tests read 18 release SBOMs and 13 VEX documents
+  by URL, check each sha256 and the verdict written next to it (run on 18/11/2026: pass).
 - **SBOMs from microsoft/sbom-tool are no longer refused; SPDX 2.2 and 2.3 are checked with the schemas SPDX corrected**
   (`spec/SBOM_INGEST.md`, SPDX rule 6, written before the code; changes verdicts). 0.11.0 to 0.12.0 checked an SPDX-2.2
   document with the schema of the tag `v2.2.2` of spdx/spdx-spec, which points at a 2.2.1-era commit (`a05c12a`, its
