@@ -238,6 +238,8 @@ class LongTermEvidence:
                trusted_pubs: Optional[set] = None) -> Dict:
         """policy None → NIST IR 8547 dates; trusted_pubs pins the FIRST signer (identity is external to the chain:
         a chain over a known digest can be re-created by anyone with a fresh key — the pin is what says who sealed)."""
+        if trusted_pubs is not None and not isinstance(trusted_pubs, (set, frozenset, list, tuple)):
+            raise ValueError("trusted_pubs: a set of public keys (a bare string would match any key it contains)")
         reasons: List[str] = []
         policy = policy or AlgorithmPolicy.nist_ir_8547()
         if not self.records:

@@ -189,8 +189,8 @@ CYCLONEDX_COMPONENT_TYPES = {"application", "framework", "library", "container",
 def source_fingerprint(path: str) -> Dict[str, Any]:
     """The exact bytes of the generator's document: SHA-256, size, file name. What the locker stores and what every
     verifier re-hashes; independent of any JSON re-serialisation (a float, a key order or an escape never changes it)."""
-    with open(path, "rb") as f:
-        raw = f.read()
+    from .ledger import read_regular       # a regular file within the bound (a FIFO or a device is refused unread)
+    raw = read_regular(path, MAX_SOURCE_BYTES)
     return {"sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw), "file": os.path.basename(path)}
 
 
@@ -494,6 +494,8 @@ def sbom_from_installed(product_id: str, product_version: str, top_level: List[s
     edges: List[List[str]] = []
     walked: List[str] = []                      # keys whose Requires-Dist was READ (only these may assert "no dependencies")
     unevaluated = 0
+    if not isinstance(top_level, (list, tuple)) or not all(isinstance(n, str) and n.strip() for n in top_level):
+        raise ValueError("top_level: a list of package names")     # 18/11/2026: "pip" gave the components "p" and "i"
     todo = [("", n) for n in top_level]         # (parent key, name); "" = the product
     seen = set()
     while todo:
@@ -539,12 +541,12 @@ def _load_document(path: str, raw: Optional[bytes] = None) -> Tuple[bytes, Any]:
     fingerprinted (two reads could see two versions of a file still being written). A nesting that exhausts the
     parser, a duplicate key (two readers would resolve it differently) or invalid UTF-8 is a malformed document
     (ValueError), never a crash."""
-    from .ledger import parse_line
+    from .ledger import FileTooLarge, parse_line, read_regular
     if raw is None:
-        if os.path.getsize(path) > MAX_SOURCE_BYTES:
-            raise ValueError(f"document exceeds {MAX_SOURCE_BYTES} bytes: refused unread (third-party input is bounded before it is read)")
-        with open(path, "rb") as f:
-            raw = f.read()
+        try:                       # 18/11/2026: open() blocked on a FIFO and read /dev/zero until killed (cra sbom, cra vex,
+            raw = read_regular(path, MAX_SOURCE_BYTES)     # cra vuln --vex): a regular file, opened without blocking
+        except FileTooLarge:
+            raise ValueError(f"document exceeds {MAX_SOURCE_BYTES} bytes: refused unread (third-party input is bounded before it is read)") from None
     try:
         return raw, parse_line(raw.decode("utf-8"), allow_floats=True)
     except RecursionError:

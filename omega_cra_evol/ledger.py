@@ -255,7 +255,7 @@ def _prefix_sha256(f: BinaryIO, size: int) -> Optional[str]:
 def _cached_start(path: str, f: BinaryIO) -> Optional[Dict[str, Any]]:
     """The chain state at the end of the bytes the last append left, if those bytes are still the file's first bytes."""
     try:
-        with open(path + STATE_SUFFIX, "rb") as g:
+        with open_regular(path + STATE_SUFFIX) as g:     # the cache next to the ledger: a FIFO in its place is "no cache"
             raw = g.read(4096 + 1)
         s = json.loads(raw.decode("utf-8")) if len(raw) <= 4096 else None
     except (OSError, ValueError):

@@ -78,7 +78,26 @@
   0.12.0 a seal was verified when made, or through the Python API. The command verifies the ledger, then for each
   sealed digest the last seal record: signatures, order, algorithm policy at `--at`, and with `--tsa-cert` the RFC 3161
   time of every record; `--sealer-pubkey` pins who sealed. Without `--tsa-cert` the output says the times are ASSUMED.
-  Exit 0, 1, or 74 when openssl cannot be run. `cra verify` is unchanged.
+  Exit 0, 1, or 74 when openssl cannot be run and no seal fails on what openssl is not needed for (signatures, the
+  sealer pin, order, policy, a record with no token under `--tsa-cert`: those are exit 1 without openssl too).
+  `cra verify` is unchanged.
+- **A generator document is opened as a regular file only** (`cra sbom`, `cra vex`, `cra vuln --vex`). Until now
+  `cra sbom --from-cyclonedx` on a FIFO waited forever and on `/dev/zero` read until the process was killed (measured
+  on 0.12.0 and on the first 0.13.0 code); it is refused before a byte is read, exit 2.
+- **Every file a caller names is read as a regular file within a bound** (`ledger.read_regular`; the same class,
+  searched in the whole package after the review of 18/11/2026). Until now these waited forever on a FIFO:
+  `cra seal --renew FILE`, the seed file of `--key` / `--tip-key` (`signing.load_key`), the pack of `cra sign`
+  (`signing.sign_pack`), `--aws-creds-file` (`kms.load_creds_file`), `sbom.source_fingerprint`, the `source_path` of
+  `EvidenceLocker.record_sbom`, and a FIFO left in place of the ledger's `.append-state.json` cache blocked every
+  append. A `--tsa-cert` file, a stored source document and a stored sbomify document compared with new bytes are read
+  the same way. Files the package ships (schemas) and files it has just written are read as before.
+- **An API that takes a list refuses a string or a dictionary** (the same class as `components="left-pad"`, which
+  recorded one query per character). `feeds.exploitation_signal("CVE-…")` answered "not exploited" for an identifier
+  in the catalogue (it compared the characters); `sbom_from_installed(p, v, "pip")` listed the components `p` and `i`;
+  `LongTermEvidence.verify(trusted_pubs=<string>)` accepted any key the string contains;
+  `record_vulnerability(attachments="")` or `{}` meant "no attachment". Each is a `ValueError` now, as are
+  `match_components`, `record_vulnerability(components=…)` and `feeds.osv_query_batch` (an `AttributeError` before).
+  The command line always passed lists: no command changes.
 - **The Commission guidance is cited as published** (`spec/LEGAL_BASIS.md`, re-check of 18/11/2026): C/2026/6013, OJ C,
   17.11.2026 (the draft was C(2026) 5252), §8 "not binding", §210, §213, §217, §218, §233 read; Regulation (EU) 2025/327,
   Article 104, which replaces Art. 13(4) and 31(3) of the CRA and inserts Art. 32(5a), is recorded (no effect on what
@@ -93,6 +112,18 @@
   `cli.py`: 27 killed by these four files as first written, the other 3 after one case each was added (an id in lower
   case in the notice, `--strict` on a complete notice, the seal evaluated after a renewal). With `CRA_REAL_NET=1` the two network tests read 18 release SBOMs and 13 VEX documents
   by URL, check each sha256 and the verdict written next to it (run on 18/11/2026: pass).
+- **Review of 18/11/2026 (night) on the 0.13.0 branch**, its eight findings corrected and the two classes searched in
+  the whole package (the three entries above on regular files, lists and `cra verify-seal` without openssl; a scoped
+  npm name with a version in a notice's `component_name` is no longer "not in the SBOM"; two README sentences and the
+  CSAF note in `vex.py` reworded). `.gitleaksignore` gains the line for `SIGNING.md` of commit `d9d4aff`: the value
+  gitleaks reports there is the SHA-256 of the public release key printed on the line above it (recomputed). With
+  gitleaks 8.24.3 (the CI's binary, same sha256) on the whole history of a clone of this branch: exit 1 without the
+  line, 0 with it. Positive control: `tests/test_review_20261118c.py` on the code of `f7e9072` gives 11 failures and
+  1 error of 14 tests (the two controls pass), and `test_sbom_sources.test_ingest_reads_the_file_once`, rewritten to
+  count the reads through `read_regular`, fails there; here they pass. 24 mutants chosen by hand on the changed lines:
+  23 killed (4 of them after a case was added), 1 equivalent (the read of a `--tsa-cert` file, which `os.path.isfile`
+  already guards). One defect of the review's own patch was found and corrected before the commit: without openssl
+  it turned a valid renewed chain into exit 1, where "not checked" (74) is the answer.
 - **SBOMs from microsoft/sbom-tool are no longer refused; SPDX 2.2 and 2.3 are checked with the schemas SPDX corrected**
   (`spec/SBOM_INGEST.md`, SPDX rule 6, written before the code; changes verdicts). 0.11.0 to 0.12.0 checked an SPDX-2.2
   document with the schema of the tag `v2.2.2` of spdx/spdx-spec, which points at a 2.2.1-era commit (`a05c12a`, its

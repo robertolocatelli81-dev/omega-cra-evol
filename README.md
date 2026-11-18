@@ -155,12 +155,13 @@ Measured on 18/11/2026 on the code of the next release (0.13.0, not yet publishe
   (kitty: an empty checksum; etcher: 40 URLs that are not IRI references; grafana and loki: `SPDXID` values the SPDX
   2.3.1 schema does not admit); 8 refused by format (5 CycloneDX XML, 2 SPDX tag-value, 1 file that is not an SBOM).
   No crash.
-- 13 OpenVEX documents: 8 accepted as OpenVEX, 5 refused (four with no statement, one file that is not a VEX); none
-  accepted under another label.
+- 13 documents found as OpenVEX: 8 accepted as OpenVEX, 5 refused (four with no statement, one file that is not a VEX);
+  none accepted under another label.
 
-Repository, tag, URL and sha256 of the documents read from the network are in
-`tests/data/real_release_sboms_20261118/NETWORK.tsv` and `tests/data/real_vex_20261118/NETWORK.tsv` (run with
-`CRA_REAL_NET=1`); six documents under MIT, Apache-2.0 or CC0-1.0 are kept in the repository with their licences.
+URL, sha256 and expected verdict of 18 of the 39 SBOMs and of the 13 VEX documents are in
+`tests/data/real_release_sboms_20261118/NETWORK.tsv` and `tests/data/real_vex_20261118/NETWORK.tsv` (read again with
+`CRA_REAL_NET=1`); six documents under MIT, Apache-2.0 or CC0-1.0 are kept in the repository with their licences. The
+other 18 SBOMs are not listed in the repository.
 
 ## Install
 
@@ -237,7 +238,8 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
 - **Not a conformity assessment, not CE marking**, not legal advice.
 - **"conformant" means conformant to the schema file named next to it** (`schema_check: conformant to
   bom-1.6.schema.json`), plus the uniqueness of `bom-ref` / `SPDXID` — not conformant to the whole CycloneDX or SPDX
-  specification. The SPDX 2.x rules checked beyond the schema are four and are listed in `source.spec_rules`; BSI
+  specification. Beyond the schema, an SPDX 2.x document is also refused for a `seeAlsos` value that is not a URL (§10.4), and up
+  to four more rules are reported in `source.spec_rules` (§8.1, §8.4, §11.1, and for SPDX 2.2 the idstring); BSI
   TR-03183-2 is reported only as a format-version notice (`source.bsi_tr_03183_2`), no field of the TR is checked.
 - **A VEX is checked for its format, not for its content:** its statements are not compared with the vulnerability
   record or with the SBOM. CSAF 2.0 is checked for its form only (the CSAF schema is not shipped). `--component` says

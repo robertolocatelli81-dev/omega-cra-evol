@@ -1,3 +1,6 @@
 # gitleaks false positive, reviewed 26/09/2026: a PUBLIC small-order Ed25519 point (order 8) used as a test key that
 # every verifier must refuse — not a secret.
 cfd9f11d6c15411a7e2fb6c98ed8eb347b76a733:verifiers/differential.py:generic-api-key:604
+# gitleaks false positive, reviewed 18/11/2026: SIGNING.md line 14 of d9d4aff is the SHA-256 of the PUBLIC release key
+# (sha256 of the 32 bytes 86db2b72…706440b printed on line 13 = 7a72250f…72007092) — not a secret.
+d9d4affdbb74d4f9ad85c63f52a2f5c7e3e3da7b:SIGNING.md:generic-api-key:14

@@ -24,6 +24,8 @@ whose `product_id` and `product_version` are the command's (`--product`, `--vers
   character, so `@scope/pkg@1.2.3` is `@scope/pkg` and `1.2.3`): the name is compared exactly with a component's
   `name`, the version, when given, exactly with its `version`.
 - An empty query, or one longer than 1,024 characters, is refused (exit 2, nothing recorded).
+- In the API the queries are a list (or tuple) of strings: a bare string, a dictionary or anything else is refused
+  (`ValueError`) before anything is written — a string would otherwise be read one character at a time.
 
 No `cra_sbom` record of that product and version in the ledger: refused, exit 2, nothing recorded (`no SBOM recorded
 for <product> <version>: record it with cra sbom first`) — a link to nothing is not written.
@@ -56,7 +58,7 @@ with the ledger, and the findings are printed in `ledger_consistency` (`{"findin
 | `no_vulnerability_record` | the notice names a `cve_id` / `euvd_id` (its own or the previous stage's) for which the ledger has no `cra_vuln` record of this product: the Art. 14 clock of this notice is not in the ledger |
 | `deadline_passed` | the stage has a deadline (early warning, notification) and it is earlier than the instant the notice is prepared: `due <deadline>, prepared <now>` |
 | `product_version_differs` | the notice's `product_version` field is present and is not the ledger's product version |
-| `component_not_in_sbom` | the notice's `component_name` is present, the ledger has a `cra_sbom` record of this product and version, and no component name of its last one is the field's value or one of its tokens (split at white space, `@`, `,`, `;`, `:`, `(`, `)`; case ignored). A name comparison only: another spelling of the same component is reported too |
+| `component_not_in_sbom` | the notice's `component_name` is present, the ledger has a `cra_sbom` record of this product and version, and no component name of its last one is the field's value or one of its tokens (split at white space, `@`, `,`, `;`, `:`, `(`, `)`; case ignored; a piece split only at white space, `,`, `;`, `:`, `(`, `)` is also read as `name@version` as in §1, so `@scope/pkg@1.2.3` names `@scope/pkg`). A name comparison only: another spelling of the same component is reported too |
 
 `checked` lists a check only when its inputs exist (no id in the notice: `no_vulnerability_record` is not checked; no
 SBOM record: `component_not_in_sbom` is not checked).

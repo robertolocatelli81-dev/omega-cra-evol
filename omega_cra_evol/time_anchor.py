@@ -54,8 +54,8 @@ def _pins_pem(tsa_certs: Sequence[Union[str, bytes]]) -> bytes:
             if not os.path.isfile(c):
                 raise ValueError(f"tsa_certs: {c!r} is not a readable file")
             try:
-                with open(c, "rb") as f:
-                    c = f.read()
+                from .ledger import read_regular       # decided on the open descriptor: a swap after isfile() is refused
+                c = read_regular(c)
             except OSError as e:   # NEMESIS 15/11/2026: an unreadable file was a PermissionError (a traceback in cra seal)
                 raise ValueError(f"tsa_certs: cannot read {c!r}: {e.strerror or e}") from None
         if not isinstance(c, (bytes, bytearray)) or not c:

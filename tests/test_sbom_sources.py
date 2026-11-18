@@ -413,19 +413,25 @@ class TestSourceStore(unittest.TestCase):
 
     def test_ingest_reads_the_file_once(self):
         """found by reviewer 2 in round 2: two reads of a file still being written = index of A, hash of B"""
+        import omega_cra_evol.ledger as lg
         import omega_cra_evol.sbom as m
         opened = []
-        real_open = open
+        real_open, real_read = open, lg.read_regular
         def spy(path, *a, **k):
             if str(path) == self.src:
                 opened.append(a[0] if a else k.get("mode", "r"))
             return real_open(path, *a, **k)
-        m.open = spy
+        def spy_read(path, *a, **k):     # 18/11/2026: the document is read with read_regular (a regular file only)
+            if str(path) == self.src:
+                opened.append("read_regular")
+            return real_read(path, *a, **k)
+        m.open, lg.read_regular = spy, spy_read
         try:
             sbom_from_cyclonedx(self.src, "tiny-cra-sample", "1.0.0")
         finally:
             del m.open
-        self.assertEqual(opened, ["rb"])
+            lg.read_regular = real_read
+        self.assertEqual(opened, ["read_regular"])
 
     def test_spdx_type_confusion_never_crashes(self):
         """round 5 (reviewers 2/1): a list where a string id is expected raised TypeError instead of being ignored"""

@@ -258,7 +258,11 @@ reads the ledger once and records nothing.
    Reported; a seal of a digest the ledger does not anchor (made with `external_digest`) is not a failure.
 5. Exit 0 only if the ledger verifies, at least one seal was evaluated and every evaluated chain is `ok`; with
    `--tsa-cert`, a record whose time is not attested makes its chain not `ok` (§5). Exit 1 otherwise. Exit 74 when the
-   time anchor could not be run here (`TimeAnchorNotRun`: no usable openssl): "not checked", never a refusal. Exit 2:
+   time anchor could not be run here (`TimeAnchorNotRun`: no usable openssl): "not checked", never a refusal — unless a
+   seal fails on what does not need openssl (signatures, the sealer pin, order, algorithm policy, a record with no
+   RFC 3161 token under `--tsa-cert`): that is exit 1, as with openssl. The note a renewal chain gets when its times
+   are not verified ("rests on UNVERIFIED timestamps") is what "not checked" already says, not such a failure: a
+   renewed chain whose tokens could not be checked here is exit 74. Exit 2:
    usage (a `--tsa-cert` that is not a PEM certificate, a `--sealer-pubkey` that is not 64 lower-case hex characters).
 
 Not done: `cra verify <pack>` still has no seal layer (its layers and exit codes are a published contract; the seal is

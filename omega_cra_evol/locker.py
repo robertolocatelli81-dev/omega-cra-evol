@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .outputs import OutputNotWritten, TipNotWritten, commit_tmp, refuse_directory, write_tmp
 
 from .canonical import deep_recursion, floatfree, sha3_hex
-from .ledger import Ledger
+from .ledger import FileTooLarge, Ledger, NotRegularFile, UnreadableFile, read_regular
 from .longterm import AlgorithmPolicy, LongTermEvidence, Signer
 from .vex import ATTACHMENT_FORMATS as _ATTACHMENT_FORMATS, check_attachment
 from .sbom import INGESTED_FORMATS, MAX_SOURCE_BYTES, SBOMRecord, reingest, resolved_components
@@ -114,10 +114,12 @@ class EvidenceLocker:
             if not source.get("sha256"):
                 raise ValueError("source_path given but this SBOM was not ingested from a document (no fingerprint): "
                                  "a document can only be bound to the index that was read from it")
-            if os.path.getsize(source_path) > MAX_SOURCE_BYTES:
-                raise ValueError(f"source document exceeds {MAX_SOURCE_BYTES} bytes: refused unread (the verifiers refuse it too)")
-            with open(source_path, "rb") as f:
-                raw = f.read()                      # read ONCE: the bytes hashed are the bytes stored
+            try:                                    # read ONCE: the bytes hashed are the bytes stored; a regular file only
+                raw = read_regular(source_path, MAX_SOURCE_BYTES)     # (18/11/2026: open() waited forever on a FIFO)
+            except FileTooLarge:
+                raise ValueError(f"source document exceeds {MAX_SOURCE_BYTES} bytes: refused unread (the verifiers refuse it too)") from None
+            except NotRegularFile:
+                raise ValueError("source document is not a regular file: refused unread") from None
             fp = {"sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw), "file": os.path.basename(source_path)}
             if source["sha256"] != fp["sha256"]:
                 raise ValueError("source document changed since it was ingested: re-run the ingest on the current file")
@@ -137,11 +139,12 @@ class EvidenceLocker:
             except OSError as e:
                 raise OutputNotWritten(f"{sources_dir(self.ledger.path)}: {e.strerror or e}; nothing was recorded") from None
             if os.path.exists(dst):
-                if os.path.getsize(dst) != len(raw):   # bounded compare: never read an oversized stored file whole
+                try:                                   # bounded compare: never read an oversized stored file whole,
+                    same_bytes = read_regular(dst, len(raw)) == raw     # nor something that is not a regular file
+                except UnreadableFile:
+                    same_bytes = False
+                if not same_bytes:
                     raise ValueError(f"source store already holds different bytes for {fp['sha256'][:16]}…: refusing to overwrite evidence")
-                with open(dst, "rb") as f:
-                    if f.read() != raw:
-                        raise ValueError(f"source store already holds different bytes for {fp['sha256'][:16]}…: refusing to overwrite evidence")
             else:
                 # a temporary of its own (two concurrent stores of the same document both succeed), whole or not at all:
                 # the stored copy is a file this subcommand promises, so a failed write is OutputNotWritten (exit 74),
@@ -196,6 +199,8 @@ class EvidenceLocker:
     def match_components(self, queries: List[str]) -> Dict[str, Any]:
         """spec/RECORD_LINKS.md §1: each query (a purl, `name` or `name@version`) looked up in the last SBOM record of
         this product and version. ValueError when a query is not a usable string or no SBOM is recorded."""
+        if not isinstance(queries, (list, tuple)):   # 18/11/2026: a bare string was split into one query per character
+            raise ValueError("component: the queries are a list of strings (a purl, name or name@version each)")
         for q in queries:
             if not isinstance(q, str) or not q.strip() or len(q) > 1024:
                 raise ValueError("component: a query is a non-empty string of at most 1,024 characters (a purl, name or name@version)")
@@ -261,6 +266,11 @@ class EvidenceLocker:
             checked.append("component_not_in_sbom")
             text = str(cn).strip().lower()
             tokens = {text} | {t for t in re.split(r"[\s@,;:()]+", text) if t}
+            for t in re.split(r"[\s,;:()]+", text):     # 18/11/2026: `@scope/pkg@1.2` is a name and a version, as in §1
+                if t.rfind("@") > 0:
+                    tokens.add(t[:t.rfind("@")])
+                elif t.startswith("@"):
+                    tokens.add(t)
             if not any(c["name"].lower() in tokens for c in self._sbom_components(entry) if c["name"]):
                 findings.append({"code": "component_not_in_sbom",
                                  "detail": f"{str(cn)[:120]!r}: no component of the SBOM recorded at entry {entry.get('idx')} has "
@@ -278,6 +288,8 @@ class EvidenceLocker:
         `affected_components` and `sbom_record`; no SBOM recorded is a ValueError."""
         if rec.product_id != self.product_id:
             raise ValueError(f"record is for product {rec.product_id!r}, this locker is for {self.product_id!r}")
+        if attachments is not None and not isinstance(attachments, (list, tuple)):
+            raise ValueError("attachments: a list of {format, document} objects")
         att = []
         for i, a in enumerate(attachments or []):
             if not isinstance(a, dict):
@@ -298,6 +310,8 @@ class EvidenceLocker:
         except RecursionError:
             raise ValueError("record nests too deep to be serialised: not written") from None
         body["event_kind"] = body.pop("kind")     # the record's own kind (vulnerability|incident) must never shadow the ledger kind
+        if components is not None and not isinstance(components, (list, tuple)):
+            raise ValueError("component: the queries are a list of strings (a purl, name or name@version each)")
         link = self.match_components(list(components)) if components else {}     # refused before anything is written
         return self._append({"kind": "cra_vuln", **body, "deadlines": rec.deadlines(), "overdue": rec.overdue(),
                              "attachments": att, **link})

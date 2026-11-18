@@ -113,8 +113,8 @@ def keygen(path: str) -> Dict[str, str]:
 def load_key(path: str) -> Tuple[Any, str]:
     """(private key object, public key hex). Load ONCE and keep it — never re-read in a hot path."""
     Ed25519PrivateKey, _, ser = _ed()
-    with open(path, encoding="utf-8") as f:
-        sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(f.read().strip()))
+    # a regular file within the bound: a FIFO or a device in place of the seed file is refused unread (18/11/2026)
+    sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(read_regular(path).decode("utf-8").strip()))
     return sk, sk.public_key().public_bytes(ser.Encoding.Raw, ser.PublicFormat.Raw).hex()
 
 
@@ -210,8 +210,7 @@ def sign_pack(pack_path: str, key: Tuple[Any, str], signer_id: str) -> Dict[str,
     sk, pk = key
     if not isinstance(signer_id, str) or not signer_id:
         raise ValueError("signer_id must be a non-empty string")
-    with open(pack_path, "rb") as f:
-        pack = parse_line(f.read().decode("utf-8"))
+    pack = parse_line(read_regular(pack_path).decode("utf-8"))     # a regular file within the bound, as the verifier reads it
     digest = pack_digest(pack)
     if pack.get("pack_sha3") != digest:
         raise ValueError("pack_sha3 does not match the pack content: refusing to sign a broken pack")

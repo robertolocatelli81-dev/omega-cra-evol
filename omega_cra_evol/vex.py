@@ -13,7 +13,8 @@ ATTACHMENT_FORMATS has its check; a document that is not of its declared format 
 - cyclonedx-sbom a CycloneDX BOM conformant as `cra sbom` checks it;
 - spdx-3.0       an SPDX 3.0.1 JSON-LD document, checked with the official schema;
 - csaf-2.0       form only (the five required properties of `document`, CSAF 2.0 §3.2.1): the CSAF schema is not
-                 shipped (OASIS IPR policy, no redistribution licence found) and `schema_check` says so.
+                 shipped (oasis-tcs/csaf: OASIS IPR Policy, GitHub reports no licence; whether the copy permission of
+                 the Policy §14.1 covers the schema file was not settled here) and `schema_check` says so.
 
 Nothing here compares a VEX statement with the record's vulnerability id or with the product's SBOM."""
 import hashlib

@@ -110,9 +110,9 @@ class KMSSigner:
 def load_creds_file(path: str) -> Dict[str, str]:
     """KEY=VALUE lines (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN); never logged."""
     out: Dict[str, str] = {}
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if "=" in line and not line.strip().startswith("#"):
-                k, v = line.strip().split("=", 1)
-                out[k.strip()] = v.strip().strip('"').strip("'")
+    from .ledger import read_regular       # a regular file within the bound (a FIFO or a device is refused unread)
+    for line in read_regular(path).decode("utf-8").splitlines():
+        if "=" in line and not line.strip().startswith("#"):
+            k, v = line.strip().split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
     return out

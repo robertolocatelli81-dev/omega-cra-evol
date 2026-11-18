@@ -225,8 +225,8 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _load_json(path: str) -> Any:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    from .ledger import read_regular       # a regular file within the bound: a FIFO or a device is refused unread
+    return json.loads(read_regular(path).decode("utf-8"))
 
 
 def _locker(a) -> EvidenceLocker:
@@ -298,14 +298,33 @@ def _verify_seal(a: argparse.Namespace, p: argparse.ArgumentParser) -> int:
         except TimeAnchorNotRun as ex:
             not_run = str(ex)[:300]
             v = {"ok": False, "reasons": [f"time anchor not checked here: {not_run}"], "temporal_trust": "not checked"}
+            try:     # 18/11/2026: what does not need openssl (signatures, sealer pin, order, policy) is still decided
+                rest = lte.verify(now=now, timestamp_trust_fn=None,
+                                  trusted_pubs=set(a.sealer_pubkey) if a.sealer_pubkey else None)
+            except TimeAnchorNotRun:
+                rest = {"ok": True}
+            except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+                rest = {"ok": False, "reasons": ["seal record malformed"]}
+            # the note verify() adds to every renewal chain checked without an oracle ("rests on UNVERIFIED timestamps")
+            # is what "not checked" already says: it is not a failure of the seal
+            decided = [x for x in (rest.get("reasons") or []) if not str(x).startswith("renewal chain: ")]
+            decided += [f"record {i}: no RFC 3161 token to verify under --tsa-cert (ts_source={r.get('ts_source')})"
+                        for i, r in enumerate(lte.records) if isinstance(r, dict) and r.get("ts_source") != "rfc3161"]
+            if decided:
+                v["reasons"] += decided
+                row["failed_without_openssl"] = True
         except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as ex:
             v = {"ok": False, "reasons": [f"seal record malformed: {type(ex).__name__}: {str(ex)[:200]}"], "temporal_trust": "n/a"}
         row["sealer"] = "pinned" if a.sealer_pubkey else "not pinned"
         row["verify"] = v
         seals.append(row)
     ok = all(s["verify"].get("ok") is True for s in seals)
+    failed = [s for s in seals if s["verify"].get("ok") is not True
+              and (s.get("failed_without_openssl") or s["verify"].get("temporal_trust") != "not checked")]
+    for s in seals:
+        s.pop("failed_without_openssl", None)
     _p({"ok": ok, "ledger": ledger, "at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"), "seals": seals})
-    return 0 if ok else (74 if not_run is not None else 1)
+    return 0 if ok else (1 if failed else 74)     # a seal that fails on what openssl is not needed for is 1, not 74
 
 
 def main(argv: List[str] = None) -> int:

@@ -51,6 +51,8 @@ def osv_query_batch(components: List[Dict[str, str]], timeout: int = 30) -> Dict
     {"name@version": ids}, "error": None|str}. `results` is aligned with the INPUT list (None = not queried: no
     version, NOT-INSTALLED, or no OSV ecosystem), so an id can never be attributed to the wrong component.
     Every vulnerability contributes its id AND its aliases (GHSA ↔ CVE), so KEV/EUVD matching on CVE works."""
+    if not isinstance(components, (list, tuple)) or not all(isinstance(c, dict) for c in components):
+        raise ValueError("components: a list of {name, version, ecosystem} objects")
     idx = [i for i, c in enumerate(components) if c.get("version") and c["version"] != "NOT-INSTALLED" and c.get("ecosystem", "PyPI")]
     qs = [{"package": {"name": components[i]["name"], "ecosystem": components[i].get("ecosystem", "PyPI")}, "version": components[i]["version"]} for i in idx]
     aligned: List[Optional[List[str]]] = [None] * len(components)
@@ -156,6 +158,8 @@ def euvd_kev_ids(timeout: int = 60) -> Dict[str, Any]:
 
 def exploitation_signal(vuln_ids: List[str], kev: Optional[Dict[str, Any]] = None, euvd: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Which of the given ids are known-exploited according to the loaded feeds (sources declared)."""
+    if not isinstance(vuln_ids, (list, tuple, set, frozenset)):   # 18/11/2026: a bare string was read one character at a
+        raise ValueError("vuln_ids: a list of identifiers")         # time and answered "not exploited"
     kev = kev or {"ids": set(), "error": "not loaded"}
     euvd = euvd or {"ids": set(), "error": "not loaded"}
     hits = {}

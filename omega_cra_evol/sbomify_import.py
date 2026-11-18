@@ -430,9 +430,12 @@ def plan(report_raw: bytes, filing_raws: List[Tuple[str, bytes]], product_id: st
 def _store(path: str, raw: bytes, created: List[str]) -> None:
     """write raw at path (whole or not at all); an existing file must hold exactly these bytes"""
     if os.path.exists(path):
-        with open(path, "rb") as f:
-            if f.read() != raw:
-                raise ImportRefused(f"{path}: already holds different bytes: refusing to overwrite evidence")
+        try:                                           # bounded, a regular file only
+            same = read_regular(path, len(raw)) == raw
+        except OSError:
+            same = False
+        if not same:
+            raise ImportRefused(f"{path}: already holds different bytes: refusing to overwrite evidence")
         return
     commit_tmp(write_tmp(path, raw), path)
     created.append(path)
