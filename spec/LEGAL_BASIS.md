@@ -1,4 +1,4 @@
-# Legal basis — as read from primary sources on 15/09/2026, re-checked on 20/09/2026, 29/09/2026, 19/10/2026, 12/11/2026 and 17/11/2026
+# Legal basis — as read from primary sources on 15/09/2026, re-checked on 20/09/2026, 29/09/2026, 19/10/2026, 12/11/2026, 17/11/2026 and 18/11/2026
 
 Regulation (EU) 2024/2847 (Cyber Resilience Act). Sources consulted on 15/09/2026:
 - European Commission, "Cyber Resilience Act — Reporting obligations": https://digital-strategy.ec.europa.eu/en/policies/cra-reporting
@@ -154,6 +154,48 @@ Italian, Spanish or Polish version either). No effect on this tool.
   0.1.0 to 0.12.0 they were 2035-01-01 and 2030-01-01, one year earlier than the text; a caller passes its own
   `AlgorithmPolicy` for another date.
 
+Re-check of 18/11/2026 (what changed: the Commission guidance is in the Official Journal; one amending act read;
+nothing in the Art. 14 deadlines). Sources: the Publications Office (`http://publications.europa.eu/resource/…`,
+English XHTML, fetched 2026-11-18 18:23–18:24 UTC) and its SPARQL endpoint for the works linked to
+`celex/32024R2847`.
+- **Acts linked to Regulation (EU) 2024/2847 in CELLAR**: one act that amends it (`resource_legal_amends_resource_legal`),
+  **Regulation (EU) 2025/327** (European Health Data Space, OJ L 5.3.2025; file sha256 `bf331ac48264118f…`); one
+  consolidated version, `02024R2847-20241120`; one Commission proposal recorded as proposing to amend it
+  (`52026PC0590`: a proposal, not read here, not law). Regulation (EU) 2025/327, **Article 104**, "Amendment to
+  Regulation (EU) 2024/2847": Art. 13(4) is replaced (the cybersecurity risk assessment goes into the technical
+  documentation; for products "as referred to in Article 12 and Article 32(5a)" it may be part of the risk assessment
+  other Union acts require), Art. 31(3) is replaced (a single set of technical documentation for those products) and
+  Art. 32(5a) is inserted (EHR systems). No paragraph of Art. 14 is touched. This tool does not assess risk nor draw up
+  the technical documentation: no effect on what it computes. (The date from which Article 104 applies was not read.)
+- **Commission guidance on the application of Regulation (EU) 2024/2847, C/2026/6013, OJ C, 17.11.2026**
+  (`http://publications.europa.eu/resource/oj/C_202606013`, sha256
+  `06a9de5d027f614610ab6716772df90696228b5e23c7ee76676d26cf348eb502`): the guidance this file cited until now as the
+  draft C(2026) 5252 (annex, §217) is published. §8: "This guidance is not binding for economic operators or other
+  actors subject to the CRA. An authoritative interpretation of the CRA may only be given by the Court of Justice of the
+  European Union." Paragraphs read:
+  - §210: the Art. 14 obligation applies from 11 September 2026 to all products in scope, those placed on the market
+    before 11 December 2027 included, and "the reporting obligations continue to apply after a product with digital
+    elements is no longer supported".
+  - §213: the manufacturer is "regarded as having become aware when, after such an initial assessment, it has a
+    reasonable degree of certainty" that a vulnerability contained in its product is being actively exploited (or that a
+    severe incident has occurred). This tool records the awareness instant the manufacturer declares; it does not
+    assess it.
+  - §217: same words as the draft — no reporting of vulnerabilities "of whose active exploitation it had already become
+    aware before 11 September 2026"; a vulnerability known before that date whose active exploitation becomes known
+    after it is reported. `art14_obligation()` is unchanged; its `GUIDANCE` text now cites C/2026/6013.
+  - §218: "a manufacturer is only required to report actively exploited vulnerabilities contained in their product with
+    digital elements"; a vulnerability of a third-party component that cannot be exploited, or has not been exploited,
+    in the product "is not subject to mandatory reporting for that manufacturer". From 0.13.0 a vulnerability record
+    can name the component of the recorded SBOM (`cra vuln --component`, `spec/RECORD_LINKS.md`); whether the
+    vulnerability is exploitable or exploited in the product stays the manufacturer's statement.
+  - §233: a vulnerability is "known when it is listed in relevant publicly accessible vulnerability databases, such as
+    the European vulnerability database … or other prominent vulnerability databases" (`cra feeds` reads CISA KEV and
+    the ENISA EUVD exploited list for the exploitation signal; it does not decide "known").
+- No implementing act on the format of the SBOM (Art. 13(24)) is among the acts CELLAR links to the Regulation. BSI
+  TR-03183-2 v2.1.0 (2025-08-20), a German technical guideline, is not such an act; `cra sbom` reports its format
+  minimum (CycloneDX 1.6, SPDX 3.0.1) as a notice (`spec/SBOM_INGEST.md`).
+- Not re-read on 18/11/2026: the ENISA SRP glossary and FAQ (last read 12/11/2026).
+
 Article 14, paragraph by paragraph, and what this tool supports (17/11/2026):
 
 | Art. 14 | Supported | Not supported |
@@ -172,7 +214,7 @@ Article 14, paragraph by paragraph, and what this tool supports (17/11/2026):
 | Actively exploited vulnerabilities: early warning within 24 h of awareness, notification within 72 h, final report no later than 14 days after a corrective or mitigating measure is available (Art. 14(2)(a)-(c)); severe incidents: 24 h, 72 h, final report "within one month after the submission of the incident notification" (Art. 14(4)(a)-(c)); reporting once through the Single Reporting Platform to the CSIRT designated as coordinator and ENISA | `VulnerabilityRecord.deadlines()/overdue()` with the clock anchored exactly as above (the incident final report is anchored to the recorded submission instant, calendar month; undetermined until recorded); `SRPNotice` builds the payload per stage in the glossary vocabulary and lists what is still missing; nothing is submitted (human portal) | Art. 14, Art. 16; applying from 11 September 2026 (Art. 71) — text re-read on EUR-Lex (OJ L, 2024/2847) on 15/09/2026 |
 | Software bill of materials in a commonly used, machine-readable format covering at least the top-level dependencies, in the technical documentation | `SBOMRecord` (CycloneDX 1.6/1.7 subset; the generator's document is stored byte-exact since 0.3.0), from the installed environment (floor) or by ingesting a full generator's CycloneDX or SPDX document (stored byte-exact); an empty SBOM is recorded as not meeting the floor | Annex I Part II(1); full application 11 December 2027 |
 | Technical documentation and EU declaration of conformity kept at the disposal of the market surveillance authorities for at least 10 years after the product is placed on the market or for the support period, whichever is longer | evidence pack (records the support period end when given, so the retention horizon is the right one) + hash-chained ledger + crypto-agile long-term seal, renewable before an algorithm is retired (NIST IR 8547, final, October 2026, https://doi.org/10.6028/NIST.IR.8547, §4.1.1 Table 2: quantum-vulnerable signatures deprecated after 2030, disallowed after 2035 — the verifier's default policy treats Ed25519 as broken from 2036-01-01, see the re-check of 17/11/2026) | Art. 13(13) (retention), Art. 31 (technical documentation content) |
-| Art. 14 applies from 11 September 2026; the obligation arises on awareness of ACTIVE EXPLOITATION (not of the vulnerability) | `art14_obligation()` / `cra obligations --exploitation-aware [--vulnerability-aware]` / `VulnerabilityRecord.overdue()["art14_obligation"]`: obligation, no obligation, or depends on the time-zone reading (both answers) | Art. 14(1)/(3), Art. 71(2); guidance C(2026) 5252 §217 (non-binding); Reg. 1182/71 Art. 4(2) |
+| Art. 14 applies from 11 September 2026; the obligation arises on awareness of ACTIVE EXPLOITATION (not of the vulnerability) | `art14_obligation()` / `cra obligations --exploitation-aware [--vulnerability-aware]` / `VulnerabilityRecord.overdue()["art14_obligation"]`: obligation, no obligation, or depends on the time-zone reading (both answers) | Art. 14(1)/(3), Art. 71(2); Commission guidance C/2026/6013 (OJ C, 17.11.2026) §217 (non-binding; the draft was C(2026) 5252); Reg. 1182/71 Art. 4(2) |
 | Open-source software stewards: reporting obligations from 11 December 2027 (Art. 14(1); 14(3) and (8) for severe incidents) | same tooling; the stream/stage model is identical, but `cra vuln` computes the manufacturer's start (11/09/2026): for a steward, before 11/12/2027 its `overdue` flags do not apply; `reporting_in_force("open_source_steward", …)` / `cra obligations --role open_source_steward` says from when, under both readings, with the Art. 24(3) scope condition recorded and never checked | Art. 24(3), Art. 71(2) |
 | Products placed on the market before 11 December 2027: Art. 14 applies to them; the requirements only after a substantial modification from that date | `legacy_product_scope()` / `cra obligations --placed-on-market [--substantially-modified]`; scope (Art. 2) and "substantial" are not decided | Art. 69(2)-(3) |
 | Support period at least five years (shorter only for a shorter expected use); each security update available 10 years or the remainder of the support period | `support_period()` (`meets_minimum` / `shorter_declared` / `below_minimum` / `depends_on_time_zone_reading`; `cra obligations` exits 1 when below under one reading where the requirements reach the product, Art. 69(2), and marks the horizons `requirements_apply`), `update_available_until()`, `retention_until()` (both readings, 1182/71 Art. 3) | Art. 13(8), 13(9), 13(13) |

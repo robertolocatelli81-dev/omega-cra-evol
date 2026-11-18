@@ -13,7 +13,7 @@ JSON object. Per label:
 
 | label | what is checked | schema | source |
 |---|---|---|---|
-| `openvex` | `@context` is `https://openvex.dev/ns/v0.2.0` (the specification: "structured as https://openvex.dev/ns/v[version] … If the version is omitted, it defaults to v0.0.1"; another version is refused, naming it); valid for the schema, `format` keywords checked | `omega_cra_evol/data/openvex/openvex_json_schema-0.2.0-93139bd.json` | openvex/spec commit `93139bd2c65390b504e47f82f11c50451289f93a` (2026-10-30), CC0-1.0 |
+| `openvex` | `@context` is `https://openvex.dev/ns/v0.2.0` (the specification: "structured as https://openvex.dev/ns/v[version] … If the version is omitted, it defaults to v0.0.1"; another version is refused, naming it); valid for the schema. A value that does not meet a `format` keyword of the schema (`uri`, `iri`, `date-time`) is reported, not refused: the schema's dialect is JSON Schema 2020-12, where `format` is an annotation unless the schema asks for assertion (Validation §7.2.1), and this one does not; `format_not_met` is their number and `format_not_met_examples` the first three (measured: `pkg:deb/debian/libc6@>=0.0.0-0` as a product `@id` in one of the 13 documents, `>` is not an IRI character) | `omega_cra_evol/data/openvex/openvex_json_schema-0.2.0-93139bd.json` | openvex/spec commit `93139bd2c65390b504e47f82f11c50451289f93a` (2026-10-30), CC0-1.0 |
 | `cyclonedx-vex` | `bomFormat` `CycloneDX`, conformant as `cra sbom` checks it (CycloneDX rules 1–5 of `SBOM_INGEST.md`), and a non-empty `vulnerabilities` array | the CycloneDX schemas already shipped | — |
 | `cyclonedx-sbom` | `bomFormat` `CycloneDX`, conformant as above | as above | — |
 | `spdx-3.0` | an SPDX 3.0.1 JSON-LD document conformant as `cra sbom` checks it | `spdx-json-schema-3.0.1.json` already shipped | — |
@@ -21,9 +21,13 @@ JSON object. Per label:
 
 A document that fails is refused (`ValueError` in the API, exit 2 in the CLI), nothing recorded, with the reason:
 `attachment <i> (<label>): <why>`. Without `jsonschema` installed, the form checks run and the schema check is not made:
-`schema_check` is `not checked (jsonschema not installed)` — never "conformant". The result kept next to the document
-in the record adds `schema_check` (`conformant to <schema file>` or the text above); the verbatim document and its
-`document_sha3` are unchanged.
+`schema_check` starts with `not checked: ` and gives the reason (`jsonschema is not installed …`) — never "conformant". The result kept next to the document
+in the record adds `schema_check` (`conformant to <schema file>` or the text above) and, for OpenVEX,
+`format_not_met` / `format_not_met_examples`; the verbatim document and its `document_sha3` are unchanged.
+
+Measured on 18/11/2026 on the same 13 documents: 8 are accepted as `openvex` and 5 refused (four with an empty
+`statements`, one of them also with members the schema does not admit; the JSON-LD context); under each of the four
+other labels all 13 are refused (0.12.0: 39 of 39 pairs tried accepted).
 
 This changes what the API accepts: a caller that attached a document under the wrong label, or a document that is not
 valid for its schema, gets a refusal.

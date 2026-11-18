@@ -229,3 +229,37 @@ and 7, same author) and an external review of 0.12.0, re-measured. Norms read on
 
 The format and the anchor name `cra-lta-time-anchor/1` do not change. A record accepted by 0.12.0 and refused here, or
 the reverse, is one of the cases above.
+
+## 10. `cra verify-seal` (0.13.0, written before the code)
+
+Until 0.12.0 a seal was verified only when it was made (`cra seal`) or through the Python API
+(`LongTermEvidence.verify`, `make_timestamp_trust_fn`): `cra verify` has no layer for it, so whoever holds the ledger
+years later had no command. Measured on 18/11/2026: a seal over a real DigiCert token was made and nothing in the CLI
+could check it again.
+
+`cra verify-seal --ledger <ledger> [--pack-sha3 <hex>] [--tsa-cert <PEM> …] [--sealer-pubkey <hex> …] [--at <instant>]`
+reads the ledger once and records nothing.
+
+1. The hash chain of the ledger and the content binding of its records are verified first (as `cra verify` does for
+   the ledger it is given); a ledger that does not verify is exit 1 with the failures and no seal is evaluated.
+2. The seals are the `cra_longterm_seal` records, grouped by the digest they seal (`lte.evidence_digest`). For each
+   digest the seal evaluated is the **last** record of that digest in the ledger (a renewal is recorded as a new
+   record holding the whole chain); the earlier ones are counted (`records_in_ledger`). With `--pack-sha3` only that
+   digest is evaluated, and its absence is exit 1 (`no seal of this digest in the ledger`). A ledger with no seal at
+   all is exit 1 (`no seal in this ledger`). A `lte` that is not the shape `LongTermEvidence.from_dict` reads is a
+   reason of that seal, never a traceback.
+3. Each chain is verified as §5 says, at the instant `--at` (default: now; an instant with a zone): signatures,
+   order, the algorithm policy (NIST IR 8547 dates), and — with `--tsa-cert` — every record's time against the pinned
+   TSA certificates (`temporal_trust: verified` only then; the log of §5's reasons is printed per record). Without
+   `--tsa-cert` the times are **not** verified and the output says so (`temporal_trust` starts with `ASSUMED`), as
+   `cra seal` does. `--sealer-pubkey` pins the key of the first record (who sealed): without it the output says
+   `sealer: not pinned`.
+4. `anchored_pack`: whether the digest is the `anchored_pack_sha3` of a `cra_pack_anchor` record of the same ledger.
+   Reported; a seal of a digest the ledger does not anchor (made with `external_digest`) is not a failure.
+5. Exit 0 only if the ledger verifies, at least one seal was evaluated and every evaluated chain is `ok`; with
+   `--tsa-cert`, a record whose time is not attested makes its chain not `ok` (§5). Exit 1 otherwise. Exit 74 when the
+   time anchor could not be run here (`TimeAnchorNotRun`: no usable openssl): "not checked", never a refusal. Exit 2:
+   usage (a `--tsa-cert` that is not a PEM certificate, a `--sealer-pubkey` that is not 64 lower-case hex characters).
+
+Not done: `cra verify <pack>` still has no seal layer (its layers and exit codes are a published contract; the seal is
+checked by this command, with the same ledger).
