@@ -152,3 +152,91 @@ tuples: measured on 18/11/2026 without `packaging`, `os_name == 'posix and linux
 `platform_release == 'a(b)'` were `None` (kept and counted; `False` for `packaging`), `python_version == '3.9.0'` (on
 3.9) and `python_version == '3.*'` were `False` where `packaging` says `True` (a dependency of this interpreter left
 out of the SBOM), and `os_name ~= 'posix'` was `True`.
+
+## Amendment of 18/11/2026 (evening), written before the code — rules 8 to 11, the wrapper, the floor, the TR notice
+
+Origin: 41 SBOMs and 13 VEX documents published on GitHub, measured with 0.12.0 on 18/11/2026 (repository, tag, URL and
+sha256 of each kept outside this repository; no third-party document is copied here except where a test fixture names
+its licence). Texts read on 18/11/2026: spdx/spdx-spec tag `v2.3.1` (`chapters/*.md`), in-toto/attestation `main`
+(`50bf017`, `spec/predicates/{cyclonedx,spdx2,spdx3}.md`, Apache-2.0), BSI TR-03183-2 v2.1.0 (2025-08-20; the BSI page
+lists it as the current version and 2.0.0 as "outdated"; PDF sha256 `dda0ccd9…845c`).
+
+### SPDX rule 8 — an `SPDXID` is unique (SPDX 2.2 and 2.3; refused)
+
+Text (2.3.1; 2.2.2 the same words): the document identifier (§6.3), a package's (§7.2), a file's (§8.2) and a
+snippet's (§9.1) `SPDXRef-[idstring]` "where `[idstring]` is a unique string"; §7.2.2 "Each element needs to be able
+to be referred to uniquely so that relationships between elements can be clearly articulated". The JSON schemas
+cannot express it. The identifiers are the top-level `SPDXID` and the `SPDXID` string of every item of `packages`,
+`files` and `snippets`, compared as exact strings. After the schema check passes, a value that appears more than once
+makes the document **not conformant**: refused with `SPDX not conformant to SPDX-2.x §7.2 (SPDXID unique): '<value>'
+appears <n> times`, nothing recorded; recorded with `--allow-nonconformant`, floor not met. A repeated identifier makes
+every relationship naming it ambiguous: the graph the record keeps would not be the document's. (CycloneDX rule 5 is
+the same rule for `bom-ref`.) SPDX 3 (`spdxId` of the JSON-LD graph) is not read by this rule.
+
+### SPDX rule 9 — rules of the SPDX 2.x text the schema does not express (reported with their section, not refused)
+
+After the schema check, `source.spec_rules` lists, for an SPDX 2.2 or 2.3 document, each rule below that the document
+does not meet: `{"section": "SPDX-2.3 §8.4", "rule": <short text>, "count": <n>, "examples": <first three>}` (empty
+list when every rule is met). `source.schema_check` keeps saying exactly what was checked (`conformant to
+<schema file>`): "conformant" in this record never means "conformant to the SPDX specification".
+
+1. **§8.1 a file name is relative** ("Format: A relative filename with the root of the package archive or
+   directory"): a `files[].fileName` that starts with `/`, `\` or a drive letter followed by `:` and a slash.
+2. **§8.4 a file has a SHA1 checksum** ("Cardinality: 1..1 for the SHA1 algorithm"): a `files[]` item whose
+   `checksums` has no item with `algorithm` `SHA1`.
+3. **§11.1, Table 68, DESCRIBES** ("mandatory if more than one package or set of files (not in a package) is
+   present"): more than one item in `packages` and no DESCRIBES statement, where a DESCRIBES statement is a
+   `relationships` item `SPDXRef-DOCUMENT DESCRIBES x`, an item `x DESCRIBED_BY SPDXRef-DOCUMENT`, or a non-empty
+   `documentDescribes` (the JSON field the SPDX JSON serialisation uses for the same relationship). Our reading: the
+   "set of files not in a package" case is not counted (the text does not say how sets are told apart).
+4. **§7.2 / §8.2 / §9.1 / §6.3 the idstring** ("letters, numbers, `.` and/or `-`"), for SPDX 2.2 only: the 2.3.1
+   schema already refuses such an identifier in a 2.3 document (pattern `^SPDXRef-[a-zA-Z0-9.-]+$`), the 2.2 schema
+   SPDX corrected has no pattern.
+
+Why reported and not refused: SPDX rule 1 refuses what the official schema refuses; SPDX 2.3.1, the release that aligns
+the schema with the text, did not add these rules to the schema, and the rules are about the quality of the description,
+not about its identity (rule 8). Measured on 18/11/2026: release SBOMs of derailed/k9s v0.51.0 (§8.1, §8.4) and
+DeusData/codebase-memory-mcp v0.12.1 (§11.1) miss them, as `pyspdxtools` 0.8.5 says. Not taken from `pyspdxtools`:
+undeclared `LicenseRef-`, `file://` cross references (SPDX rule 7 already decides), a licence identifier read as an
+exception — three of its findings on the same documents that the text does not support.
+
+### Rule 10 — an SBOM inside an in-toto Statement
+
+in-toto/attestation defines the predicate types `https://cyclonedx.org/bom` (and `…/bom/v<version>`),
+`https://spdx.dev/Document` (and `…/Document/v2.3`) and `https://spdx.dev/Document/v3`; "The `predicate` contains a
+JSON-encoded CycloneDX BOM" (resp. SPDX document). A JSON object whose `_type` is `https://in-toto.io/Statement/v1` or
+`https://in-toto.io/Statement/v0.1` and whose `predicateType` is one of those (exact strings, or the CycloneDX/SPDX
+prefix followed by `/v` and a version) is read as follows: its `predicate` must be a JSON object and is checked by every
+rule of this text as the document; the stored bytes are the Statement as given (its sha256 is the file's);
+`source.wrapper` is `in-toto-statement`, `source.wrapper_predicate_type` the predicate type and
+`source.wrapper_subjects` the number of subjects. The Statement is **not** a signature: nothing here says who made it
+(a DSSE envelope is refused as before: give the Statement). Any other `_type` or `predicateType` is refused, naming
+it.
+
+### Rule 11 — formats refused by name
+
+Unchanged, refused (exit 2, nothing recorded) with the reason naming the format: SPDX tag-value, CycloneDX XML, SPDX
+RDF/XML. New: a Syft JSON document (top-level `artifacts`, `source`, `distro`, `descriptor` with `descriptor.name`
+`syft`) is refused with `Syft JSON is not supported: convert it with "syft convert <file> -o cyclonedx-json" (or -o
+spdx-json)`. Not done in 0.13.0: reading CycloneDX XML (it needs an XML Schema 1.0 validator with the official XSD: none
+in the standard library) and SPDX tag-value (a grammar of its own); the README says how to convert them.
+
+### The floor counts versions, not ranges, and not CI actions
+
+`resolved_components` (what `floor_met` needs at least one of) no longer counts a component whose version is a range or
+a constraint — a version string containing `<`, `>`, `=`, `,`, `|`, `^`, `*` or white space, or starting with `~` —
+nor a component whose purl is `pkg:githubactions/…` (a CI workflow step is not a component of the product: Annex I part
+II(1) asks for the product's dependencies). A version with `~` inside (`5.7-0.5~deb12u1`, Debian), `+` or `:` is a
+version. `source.versions_not_resolved` counts the components left out as ranges and `source.ci_components` those left
+out as CI actions (ingested documents only). Measured on 18/11/2026: the SPDX document GitHub's dependency graph gives
+for psf/requests had `floor_met` true from 4 ranges (`>= 2.5,< 4`, …) and 10 GitHub Actions while none of its four
+runtime dependencies had a version.
+
+### The format version and BSI TR-03183-2 (a notice, never a refusal)
+
+BSI TR-03183-2 v2.1.0 §4: "A newly generated or updated SBOM MUST be in JSON- or XML-format and a valid SBOM according to
+one of the following specifications in one of the specified versions: CycloneDX, version 1.6 or higher; System Package
+Data Exchange (SPDX), version 3.0.1 or higher". The CRA does not make the TR binding (no implementing act on the SBOM
+format, Art. 13(24), as of 18/11/2026). `source.bsi_tr_03183_2` is `{"version": "2.1.0", "format_minimum_met": <bool>,
+"note": …}`: false for CycloneDX 1.2–1.5 and SPDX 2.x. It decides nothing (floor, exit code, refusal), and no other
+field of the TR is checked.
