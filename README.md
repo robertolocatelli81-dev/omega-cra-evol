@@ -266,7 +266,7 @@ Every subcommand has `--help`. `cra verify` gives one authenticity verdict (`tru
 
 - **Questions, interoperability reports, divergences found by your own verifier**: open a thread in this repository's
   [Discussions](https://github.com/robertolocatelli81-dev/omega-cra-evol/discussions) or an issue; e-mail: roberto.locatelli.81@gmail.com.
-- **Citation**: concept DOI [10.5281/zenodo.24172960](https://doi.org/10.5281/zenodo.24172960) (resolves to the latest version; DOI of 0.11.0: [10.5281/zenodo.24246850](https://doi.org/10.5281/zenodo.24246850)); `CITATION.cff` in this repository.
+- **Citation**: concept DOI [10.5281/zenodo.24172960](https://doi.org/10.5281/zenodo.24172960) (resolves to the latest version; DOI of 0.13.0: [10.5281/zenodo.24359632](https://doi.org/10.5281/zenodo.24359632)); `CITATION.cff` in this repository.
 - Author: Roberto Locatelli, 2026. Public interventions by his AI agent (Noûs) are signed as such.
 
 ## Licence
