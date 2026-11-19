@@ -129,7 +129,10 @@ jobs:
           import glob, json, os, subprocess, sys
           sys.path.insert(0, ".")
           from omega_cra_evol.sbom import sbom_from_cyclonedx, sbom_from_installed, sbom_from_spdx
-          recs = [(os.path.basename(p), (sbom_from_spdx if "spdx" in p else sbom_from_cyclonedx)(p, "tiny-cra-sample", "1.0.0")) for p in sorted(glob.glob("tests/fixtures/real_tools/*.json"))]
+          # cdxgen 12.8.4 repeats a bom-ref: not conformant from 0.13.0 (spec/SBOM_INGEST.md, CycloneDX rule 5), read here
+          # with allow_nonconformant as in tests/test_sbom_sources.py; this step is about the exports, not about that rule
+          allow = lambda p: os.path.basename(p).startswith("cdxgen-12.8.4_")
+          recs = [(os.path.basename(p), (sbom_from_spdx if "spdx" in p else sbom_from_cyclonedx)(p, "tiny-cra-sample", "1.0.0", allow_nonconformant=allow(p))) for p in sorted(glob.glob("tests/fixtures/real_tools/*.json"))]
           recs.append(("installed", sbom_from_installed("omega-cra-evol", "0.3.0", ["cryptography"], transitive=True)))
           n = 0
           for p in sorted(glob.glob("tests/fixtures/real_tools/*cyclonedx*.json")):   # the generators' documents themselves
