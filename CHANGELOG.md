@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.13.0)
+## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 
 - **An SPDX 2.2 or 2.3 document that repeats an `SPDXID` is not conformant** (`spec/SBOM_INGEST.md`, SPDX rule 8, written
   before the code; changes verdicts). §6.3, §7.2, §8.2 and §9.1 of the text: `SPDXRef-[idstring]` "where [idstring] is a
