@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — text of a third party is read in time proportional to its length; the ledger's state file is written like every other file
+
+Found by a security review of commit 034ed13 (0.13.0) on 20/11/2026 and measured that day on that commit with Python
+3.11.2; `spec/SBOM_INGEST.md`, amendment of 20/11/2026 (rules 12 and 13), written before the code. No verdict, record or
+exit code changes for a document that was read before; `tests/test_sentry_20261120.py`.
+
+- **The `Tool:` item of an SPDX document's `creationInfo.creators` is split into name and version in one pass** (rules
+  12 and 13(2)). 0.13.0 used a regular expression whose time grew with the square of the item's length: `Tool: ` followed
+  by `1.1` repeated 2,000 / 4,000 / 8,000 / 16,000 times and `!` (6 to 48 kB) took 0.25 / 0.98 / 4.43 / 22.7 s in
+  `sbom_from_spdx` (24 kB of letters: 0.004 s), and `cra sbom --from-spdx` on the 24 kB document 10.5 s. Now the 48 kB
+  document takes 0.005 s and a 1 MB one under 0.3 s. `source.generator` and `source.generator_version` are the same as
+  before on every input: compared with the expression of 0.13.0 on every string of up to 7 characters over
+  `1.-a !` and line feed (960,800 strings), up to 6 over a second alphabet with a non-ASCII decimal digit, `²`, `_`
+  and other white space (299,593), 40,000 seeded random strings, and the creators of the documents in `tests/fixtures`
+  with 400 changes each.
+
 ## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 
 - **An SPDX 2.2 or 2.3 document that repeats an `SPDXID` is not conformant** (`spec/SBOM_INGEST.md`, SPDX rule 8, written

@@ -1220,6 +1220,32 @@ def _agent_name(v: Any) -> str:
     return re.sub(r"\s*\([^()]*@[^()]*\)\s*$", "", v).strip() if v else ""
 
 
+def _generator_name_version(text: str) -> Tuple[str, str]:
+    """'syft-1.52.0' / 'trivy-0.74.0' → name + version (spec/SBOM_INGEST.md, rules 12 and 13(2)); no version found:
+    (text, ""). One pass over the text. Until 0.13.0 this was re.match(r"^(.*?)[-\s]?(\d+\.\d+[\w.\-]*)$", text) with
+    group(1).rstrip("-") and group(2): the same result on every input, quadratic in len(text) (20/11/2026: 48 kB of
+    "1.11.11.1…!" took 22.7 s)."""
+    end = len(text) - 1 if text.endswith("\n") else len(text)     # `$` also matched before a line feed at the very end
+    tail = end                                                     # text[tail:end]: only letters, digits, "_", ".", "-"
+    while tail > 0 and (text[tail - 1].isalnum() or text[tail - 1] in "_.-"):
+        tail -= 1
+    i, start = tail, -1
+    while i < end:                                                 # the first "digits . digit" inside that tail
+        run = i
+        while run < end and text[run].isdecimal():
+            run += 1
+        if run > i and run + 1 < end and text[run] == "." and text[run + 1].isdecimal():
+            start = i
+            break
+        i = max(run, i + 1)                                        # every digit of a run ends at the same place
+    if start == -1:
+        return text, ""
+    cut = start - 1 if start > 0 and text[start - 1].isspace() else start      # (a "-" there goes with the rstrip below)
+    if "\n" in text[:cut]:
+        return text, ""
+    return text[:cut].rstrip("-"), text[start:end]
+
+
 def _sha256_or_empty(v: Any) -> str:
     v = str(v or "").strip().lower()
     return v if re.fullmatch(r"[0-9a-f]{64}", v) else ""       # a malformed checksum is not evidence
@@ -1477,9 +1503,7 @@ def sbom_from_spdx(path: str, product_id: str, product_version: str, raw: Option
     source.update({"generator": parts[2] if len(parts) > 2 else "", "generator_version": "",
                    "roots_excluded": source["packages_declared"] - source["packages_unnamed"] - len(comps),
                    "duplicates_merged": len(comps) - len(dedup(comps))})
-    gv = re.match(r"^(.*?)[-\s]?(\d+\.\d+[\w.\-]*)$", source["generator"])
-    if gv:   # "syft-1.52.0" / "trivy-0.74.0" → name + version
-        source["generator"], source["generator_version"] = gv.group(1).rstrip("-"), gv.group(2)
+    source["generator"], source["generator_version"] = _generator_name_version(source["generator"])
     source["schema_check"] = schema_text
     source.update(_floor_counts(comps))
     ctx = d.get("@context")
