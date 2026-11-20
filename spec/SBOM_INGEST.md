@@ -240,3 +240,64 @@ Data Exchange (SPDX), version 3.0.1 or higher". The CRA does not make the TR bin
 format, Art. 13(24), as of 18/11/2026). `source.bsi_tr_03183_2` is `{"version": "2.1.0", "format_minimum_met": <bool>,
 "note": …}`: false for CycloneDX 1.2–1.5 and SPDX 2.x. It decides nothing (floor, exit code, refusal), and no other
 field of the TR is checked.
+
+## Amendment of 20/11/2026, written before the code — rules 12 and 13, the markers (not yet released)
+
+Origin: a security review of commit 034ed13 (0.13.0) on 20/11/2026. Two SPDX text fields were read with regular
+expressions whose time grew with the square of the field's length: measured that day on 034ed13 (Python 3.11.2), a
+`creationInfo.creators` item `Tool: ` + `1.1` × 16,000 + `!` (48 kB) took 22.7 s and a `supplier` of
+`Organization: (` + `@` × 100,000 + `x(` (100 kB) took 15.1 s, where 24 kB and 200 kB of ordinary text took 0.004 s and
+0.021 s. The other expressions of the package that meet text of a third party were then measured the same way
+(52 expressions and procedures, 20 of them the distinct `pattern` values of the bundled schemas; a search with
+generated strings, not a proof): one more was quadratic (point 3 of rule 13) and the fallback of the markers had two
+defects of the same kind (last section). Text read on 20/11/2026: spdx/spdx-spec tag `v2.3.1`, the latest 2.x tag that day
+(`chapters/package-information.md`, `chapters/document-creation-information.md`).
+
+### Rule 12 — a text field is read in time proportional to its length
+
+Every procedure of this package that reads a text field of an ingested document (SPDX or CycloneDX) takes a time at
+most proportional to the length of the field. No field is refused for its length by this rule: the bound on the
+document stays the one on its bytes (`MAX_SOURCE_BYTES`). The rule is on our procedures; the `pattern` values of the
+official schemas are the schemas' (what was measured on them is in the CHANGELOG entry, with its date). A procedure
+that changes to meet this rule gives the same result as before on every input: rule 13 states those results.
+
+### SPDX rule 13 — the name of a supplier or originator, the name and the version of the tool (SPDX 2.2 and 2.3)
+
+The results are those of 0.13.0; they are written here because the code no longer says them with an expression.
+
+1. **Supplier, originator** (§7.5 Table 17 and §7.6 Table 18: "`Person:` person name and optional `(<email>)`",
+   "`Organization:` organization name and optional `(<email>)`", or `NOASSERTION`). A value that is not a string, or
+   that is empty, `NOASSERTION` or `NONE` once the white space around it is removed, is no name. Otherwise: the white
+   space around it is removed; a leading `Organization:` and then a leading `Person:` are removed, each with the white
+   space that follows; then, if the text ends with `)`, and between the last `(` before that `)` and that `)` there is
+   an `@` and no other `)`, the text from that `(` on is removed together with the white space before it. Nothing else
+   is removed: `Acme (Bar) Ltd` keeps its name, `Acme (Bar) Ltd (x@y.z)` is `Acme (Bar) Ltd`. White space is what
+   Python's `str.isspace()` says.
+2. **Tool** (§6.8 Table 9: "`Tool: toolidentifier-version`"). The first item of `creationInfo.creators` that starts
+   with `Tool:` is taken, every `Tool:` in it is removed and the rest is read as in point 1; `source.generator` is that
+   text up to its first `:` (the whole text when it has none; this holds when `spdxVersion` has no `:` itself). The version is split off where, reading from the left,
+   the text is for the first time one or more decimal digits, a `.`, a decimal digit, and from there to the end only
+   letters, digits, `_`, `.` and `-`: `source.generator_version` is the text from that point, and the name is the text
+   before it without one `-` or one white-space character immediately before the version, and then without the `-` at
+   its end (`syft-1.52.0` is `syft` and `1.52.0`; `LicenseFind-1.0`, the example of §6.8, is `LicenseFind` and `1.0`).
+   When there is no such point, or the name would contain a line feed, the whole text is the name and the version is
+   empty. A line feed at the very end of the text belongs to neither. Letters and digits are what Python's
+   `str.isalnum()` says, decimal digits what `str.isdecimal()` says.
+3. **Licence expression** (what `is_spdx_expression` splits; the licence of a component of an ingested document
+   reaches it when the record is written). The operators are `OR`, `AND` and `WITH` in capitals, each with white space
+   immediately before and after it; reading from the left, a run of white space followed by one of the three words
+   and by white space is an operator, and the white space after the word belongs to it (`A OR AND B` is `A` and
+   `AND B`). The parts are the text between the operators, as it is. A value is an expression when it has more than
+   one part and every part, without the `(`, `)` and spaces at its ends, is an identifier of the SPDX list or ends
+   with `-exception` or `-exception-` and digits or dots (a line feed at the very end of the part aside).
+
+### Markers of the installed floor: nesting and length (amends "PEP 508 markers of the installed floor", above)
+
+`marker_applies` answers `True`, `False` or `None` for every text: a marker whose parentheses nest deeper than the
+interpreter follows (`RecursionError`, in `packaging` or in the fallback) is `None`, kept and counted like every
+marker not evaluated. Measured on 034ed13 on 20/11/2026 (Python 3.11.2, `packaging` 26.2): `python_version >= '3'`
+inside 2,000 pairs of parentheses ended the call with `RecursionError`; with 400 pairs the fallback alone did, where
+`packaging` answers `True` — there the fallback is now `None`, not `packaging`'s boolean, which the rule above allows
+(with 100 pairs both answer `True`).
+The fallback reads its tokens in one pass (rule 12 applied to it): until 0.13.0 it copied the rest of the text at each
+token, and 100,000 conditions joined by `and` (1.9 MB) took 72.6 s.
