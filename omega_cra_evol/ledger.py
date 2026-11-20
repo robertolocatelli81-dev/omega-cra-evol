@@ -322,12 +322,12 @@ def _write_state(path: str, f: BinaryIO, n: int, lines: int, last: str, first: s
             return
         body = json.dumps({"version": STATE_VERSION, "size": size, "sha256": digest, "n": n, "lines": lines,
                            "last": last, "first": first}, sort_keys=True).encode()
-        tmp = path + STATE_SUFFIX + ".tmp"
-        with open(tmp, "wb") as g:
-            g.write(body)
-            g.flush(); os.fsync(g.fileno())
-        os.replace(tmp, path + STATE_SUFFIX)
-    except OSError as e:
+        from .outputs import commit_tmp, write_tmp
+        # a new file of a name nobody can predict, O_EXCL | O_NOFOLLOW, renamed over the state (outputs.py). Until
+        # 0.13.0 this was open(path + STATE_SUFFIX + ".tmp", "wb"): a symlink left at that name was followed and the
+        # file it pointed to overwritten, a FIFO there blocked the append after the record was written (20/11/2026).
+        commit_tmp(write_tmp(path + STATE_SUFFIX, body), path + STATE_SUFFIX)
+    except OSError as e:                                  # OutputNotWritten is an OSError
         _log.warning("ledger %s: append state not written (%s): the next append reads the whole ledger", path, e)
 
 

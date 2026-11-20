@@ -23,6 +23,17 @@ exit code changes for a document that was read before; `tests/test_sentry_202611
   characters over `(@) a` and line feed (335,923 strings), up to 6 over a second alphabet with other white space
   (137,257), 40,000 seeded random strings, and the supplier, originator and creator strings of the documents in
   `tests/fixtures` with 400 changes each.
+- **The ledger's append state is written to a new file of a random name and renamed** (`outputs.write_tmp`:
+  `O_EXCL | O_NOFOLLOW`, as the pack, the sidecar, the tip and the stored sources already were). 0.13.0 opened
+  `<ledger>.append-state.json.tmp` with `open(..., "wb")`: a symbolic link left at that name by anyone who can write
+  in the ledger's folder was followed and the file it pointed to was overwritten with the state (measured on a file next
+  to the ledger); a FIFO at that name blocked `append` for good after the record was
+  already in the ledger. The state is a cache and nothing else changes: same name, same content, a state that cannot
+  be written is still a warning and a full read at the next append. Every other file the package creates was checked
+  the same day: an audit hook in the test records each file opened with `O_CREAT` while the package appends, stores a
+  source document, writes a pack, a signed tip and a signature, and each is the ledger itself (the caller's file,
+  opened for append) or is created with `O_EXCL`. The files `time_anchor` gives to `openssl` are inside a
+  `tempfile.mkdtemp` folder; `scripts/` and `verifiers/` (development tools) were not changed.
 
 ## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 

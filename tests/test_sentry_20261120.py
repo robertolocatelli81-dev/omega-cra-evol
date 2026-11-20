@@ -282,5 +282,219 @@ class LinearTimeSupplier(Ingests):
         self.assertEqual(self.ingest(supplier="NOASSERTION", originator="Person: (" + "@" * MEGABYTE + "x(")[2], ["(" + "@" * 19])
 
 
+# ── 3. the ledger's append state is written like every other file ───────────────────────────────────────────────────
+# 034ed13, omega_cra_evol/ledger.py 325-329: `<ledger>.append-state.json` (a cache) was written through
+# `<ledger>.append-state.json.tmp` opened with open(..., "wb"). Measured there on 20/11/2026: a symlink left at that
+# name was followed and the file it pointed to overwritten; a FIFO there blocked the append after the record was
+# already in the ledger. It is now written with outputs.write_tmp (a new file of a random name, O_EXCL | O_NOFOLLOW)
+# and renamed. NothingCreatedAtAPredictableName is the closed list for the package: an audit hook records every file
+# opened with O_CREAT while the package appends, stores a source document, writes a pack, a tip and a signature; each
+# is the ledger itself or was created with O_EXCL.
+# With the package of 034ed13 (20/11/2026): LedgerStateFile fails in test_symlink_at_the_old_temporary_name_is_not_followed,
+# test_fifo_at_the_old_temporary_name_does_not_block_the_append, test_random_objects_at_the_state_names and
+# test_state_that_cannot_be_written_is_a_warning_and_the_record_is_kept (the temporary file stayed); the three tests of
+# NothingCreatedAtAPredictableName that run the package fail. The other three pass there.
+from omega_cra_evol import ledger as L  # noqa: E402
+
+OLD_TMP = L.STATE_SUFFIX + ".tmp"       # the name used until 0.13.0
+VICTIM = b"ORIGINAL CONTENT\n"
+
+APPEND_WITH_FIFO = """
+import os, sys
+from omega_cra_evol.ledger import Ledger, STATE_SUFFIX
+led = sys.argv[1]
+os.mkfifo(led + STATE_SUFFIX + sys.argv[2])
+Ledger(led).append({"kind": "probe"})
+Ledger(led).append({"kind": "probe"})
+print(Ledger(led).verify()["entries"])
+"""
+
+
+@unittest.skipUnless(hasattr(os, "symlink") and hasattr(os, "mkfifo"), "needs symlinks and FIFOs")
+class LedgerStateFile(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.led = os.path.join(self.d, "cra.ledger.jsonl")
+        self.victim = os.path.join(self.d, "victim.txt")
+        with open(self.victim, "wb") as f:
+            f.write(VICTIM)
+
+    def victim_bytes(self):
+        with open(self.victim, "rb") as f:
+            return f.read()
+
+    def test_symlink_at_the_old_temporary_name_is_not_followed(self):
+        os.symlink(self.victim, self.led + OLD_TMP)
+        L.Ledger(self.led).append({"kind": "probe"})
+        self.assertEqual(self.victim_bytes(), VICTIM)
+        self.assertTrue(os.path.islink(self.led + OLD_TMP))                       # left as it was found
+        self.assertFalse(os.path.islink(self.led + L.STATE_SUFFIX))
+        with open(self.led + L.STATE_SUFFIX, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["n"], 1)
+        with open(self.led, "rb") as f:                                            # and the state written is used
+            self.assertIsNotNone(L._cached_start(self.led, f))
+
+    def test_symlink_at_the_state_name_is_replaced_not_followed(self):
+        os.symlink(self.victim, self.led + L.STATE_SUFFIX)
+        L.Ledger(self.led).append({"kind": "probe"})
+        L.Ledger(self.led).append({"kind": "probe"})
+        self.assertEqual(self.victim_bytes(), VICTIM)
+        self.assertFalse(os.path.islink(self.led + L.STATE_SUFFIX))
+        self.assertEqual(L.Ledger(self.led).verify()["entries"], 2)
+
+    def test_fifo_at_the_old_temporary_name_does_not_block_the_append(self):
+        ok, out = run_child(APPEND_WITH_FIFO, self.led, ".tmp")
+        self.assertTrue(ok, f"the append did not end within {CEILING} s: {out}")
+        self.assertEqual(out, "2")
+
+    def test_no_temporary_file_is_left(self):
+        for _ in range(5):
+            L.Ledger(self.led).append({"kind": "probe"})
+        self.assertEqual(sorted(os.listdir(self.d)), ["cra.ledger.jsonl", "cra.ledger.jsonl" + L.STATE_SUFFIX, "victim.txt"])
+
+    def test_state_that_cannot_be_written_is_a_warning_and_the_record_is_kept(self):
+        os.mkdir(self.led + L.STATE_SUFFIX)                                        # the rename over a directory fails
+        with self.assertLogs("omega_cra_evol.ledger", level="WARNING") as logs:
+            L.Ledger(self.led).append({"kind": "probe"})
+        self.assertIn("append state not written", logs.output[0])
+        self.assertEqual(os.listdir(self.led + L.STATE_SUFFIX), [])
+        self.assertEqual([n for n in os.listdir(self.d) if n.endswith(".tmp")], [])   # the temporary file is removed
+        self.assertEqual(L.Ledger(self.led).verify()["entries"], 1)
+
+    def test_random_objects_at_the_state_names(self):
+        rnd = random.Random(20261120)
+        kinds = ("symlink", "dangling", "directory", "file", "nothing", "nothing")   # (a FIFO: the test above, in a child)
+        for case in range(120):
+            d = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, d, True)
+            led, victim = os.path.join(d, "l.jsonl"), os.path.join(d, "victim.txt")
+            with open(victim, "wb") as f:
+                f.write(VICTIM)
+            n = 0
+            for step in range(rnd.randrange(1, 6)):
+                for name in (led + OLD_TMP, led + L.STATE_SUFFIX):
+                    kind = rnd.choice(kinds)
+                    if kind == "nothing" or os.path.lexists(name) and os.path.isdir(name) and not os.path.islink(name):
+                        continue
+                    if os.path.lexists(name):
+                        os.unlink(name)
+                    if kind == "symlink":
+                        os.symlink(victim, name)
+                    elif kind == "dangling":
+                        os.symlink(os.path.join(d, "created-through-the-link"), name)
+                    elif kind == "directory":
+                        os.mkdir(name)
+                    else:
+                        with open(name, "wb") as f:
+                            f.write(rnd.choice([b"", b"{}", b"\xff", b"[1]"]))
+                with self.assertLogs("omega_cra_evol.ledger", level="WARNING") if os.path.isdir(led + L.STATE_SUFFIX) \
+                        and not os.path.islink(led + L.STATE_SUFFIX) else _no_logs():
+                    e = L.Ledger(led).append({"kind": "probe", "step": step})
+                self.assertEqual(e["idx"], n, (case, step))
+                n += 1
+                with open(victim, "rb") as f:
+                    self.assertEqual(f.read(), VICTIM, (case, step))
+                self.assertFalse(os.path.lexists(os.path.join(d, "created-through-the-link")), (case, step))
+                v = L.Ledger(led).verify()
+                self.assertEqual((v["chain_ok"], v["entries"]), (True, n), (case, step))
+
+
+class _no_logs:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+_CREATED = None      # a list while a test records; audit hooks cannot be removed, so this one is switched
+
+
+def _audit(event, args):
+    if _CREATED is not None and event == "open" and isinstance(args[2], int) and args[2] & os.O_CREAT:
+        _CREATED.append((os.fsdecode(args[0]) if isinstance(args[0], (str, bytes)) else repr(args[0]), bool(args[2] & os.O_EXCL)))
+
+
+sys.addaudithook(_audit)
+
+
+class NothingCreatedAtAPredictableName(unittest.TestCase):
+    """Closed list: while the package writes, a file opened with O_CREAT is the ledger (the caller's own file, appended
+    to) or is created with O_EXCL — a new file, never what somebody left at a name that can be guessed."""
+
+    def record(self, work):
+        global _CREATED
+        _CREATED = []
+        try:
+            work()
+            return list(_CREATED)
+        finally:
+            _CREATED = None
+
+    def check(self, d, led, created, at_least):
+        mine = [(p, excl) for p, excl in created if os.path.abspath(p).startswith(d)]
+        self.assertGreaterEqual(len(mine), at_least, mine)
+        self.assertIn((led, False), mine)                                         # the hook sees the ledger's open: it works
+        self.assertEqual([p for p, excl in mine if not excl and p != led], [])
+
+    def test_append(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        led = os.path.join(d, "l.jsonl")
+        created = self.record(lambda: [L.Ledger(led).append({"kind": "probe"}) for _ in range(3)])
+        self.check(d, led, created, 6)                                            # 3 opens of the ledger, 3 state files
+
+    def test_locker_with_a_source_document_and_a_pack(self):
+        from omega_cra_evol.locker import EvidenceLocker
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        led = os.path.join(d, "l.jsonl")
+        src = os.path.join(ROOT, "tests", "fixtures", "real_tools", "syft-1.52.0_spdx-2.3.json")
+
+        def work():
+            lk = EvidenceLocker(led, "prod", "1.0")
+            lk.record_sbom(sbom.sbom_from_spdx(src, "prod", "1.0"), source_path=src)
+            lk.evidence_pack(os.path.join(d, "pack.json"))
+        created = self.record(work)
+        self.check(d, led, created, 6)                              # 2 appends (ledger + state each), the source, the pack
+        self.assertTrue(os.path.isfile(os.path.join(d, "pack.json")))
+        self.assertEqual(len(os.listdir(led + ".sources")), 1)
+
+    def test_signed_tip_and_signed_pack(self):
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            self.skipTest("cryptography not installed")
+        from omega_cra_evol.locker import EvidenceLocker
+        from omega_cra_evol.sbom import SBOMComponent, SBOMRecord
+        from omega_cra_evol.signing import keygen, load_key, sign_pack
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        led, key, pack = os.path.join(d, "l.jsonl"), os.path.join(d, "k"), os.path.join(d, "pack.json")
+
+        def work():
+            keygen(key)
+            lk = EvidenceLocker(led, "prod", "1.0", tip_key=load_key(key))
+            lk.record_sbom(SBOMRecord("prod", "1.0", [SBOMComponent("a", "1")]))
+            lk.evidence_pack(pack)
+            sign_pack(pack, load_key(key), "acme-ci")
+        created = self.record(work)
+        self.check(d, led, created, 9)             # the key, 2 appends (ledger + state + tip each), the pack, the sidecar
+        self.assertIn((key, True), created)
+        for name in ("l.jsonl.tip.json", "pack.json", "pack.json.sig.json"):
+            self.assertTrue(os.path.isfile(os.path.join(d, name)), name)
+
+    def test_the_hook_reports_a_file_created_without_o_excl(self):
+        """the bench can fail: the open of 0.13.0, done here, is reported"""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+
+        def work():
+            with open(os.path.join(d, "x.tmp"), "wb") as f:
+                f.write(b"x")
+        self.assertEqual(self.record(work), [(os.path.join(d, "x.tmp"), False)])
+
+
 if __name__ == "__main__":
     unittest.main()
