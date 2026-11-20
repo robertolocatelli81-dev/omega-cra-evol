@@ -480,9 +480,31 @@ def installed_license(meta: Any) -> str:
     return ""
 
 
+_WHITE_SPACE = re.compile(r"\s+")
+
+
+def _expression_parts(value: str) -> List[str]:
+    """The text between the operators ` OR `, ` AND `, ` WITH ` (white space, the word, white space), left to right
+    (spec/SBOM_INGEST.md, rules 12 and 13(3)). One pass over the runs of white space. Until 0.13.0 this was
+    re.split(r"\s+(?:OR|AND|WITH)\s+", value): the same parts, quadratic in a run of white space (20/11/2026: a licence
+    of 32 kB of spaces took 5.8 s in `record_sbom`)."""
+    runs = [m.span() for m in _WHITE_SPACE.finditer(value)]
+    parts, last, i = [], 0, 0
+    while i < len(runs):
+        start, end = runs[i]
+        word = next((w for w in ("OR", "AND", "WITH") if value.startswith(w, end)), None)
+        if word is not None and i + 1 < len(runs) and runs[i + 1][0] == end + len(word):
+            parts.append(value[last:start])
+            last = runs[i + 1][1]
+            i += 1                       # the white space after the word is the operator's: it starts no other one
+        i += 1
+    parts.append(value[last:])
+    return parts
+
+
 def is_spdx_expression(value: str) -> bool:
     """A compound SPDX expression (`A OR B`, `A AND B`, `A WITH exc`) whose atoms are listed identifiers."""
-    parts = re.split(r"\s+(?:OR|AND|WITH)\s+", value)
+    parts = _expression_parts(value)
     return len(parts) > 1 and all(is_spdx_id(p.strip("() ")) or re.search(r"-exception(-[0-9.]+)?$", p.strip("() ")) for p in parts)
 
 

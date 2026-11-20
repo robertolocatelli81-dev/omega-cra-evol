@@ -496,5 +496,120 @@ class NothingCreatedAtAPredictableName(unittest.TestCase):
         self.assertEqual(self.record(work), [(os.path.join(d, "x.tmp"), False)])
 
 
+# ── 4. the parts of a licence expression (rules 12 and 13(3)) ───────────────────────────────────────────────────────
+# 034ed13, omega_cra_evol/sbom.py 485: re.split(r"\s+(?:OR|AND|WITH)\s+", value), reached by `record_sbom` with the
+# licence of every component of an ingested document. Measured there on 20/11/2026: a licence of 32 kB ("a", spaces,
+# "b") took 5.8 s in record_sbom (4, 8, 16 kB: 0.10, 0.37, 1.46 s; 32 kB of letters: 0.015 s).
+# With the package of 034ed13 (20/11/2026): LinearTimeLicence fails in _of_spaces (stopped at the ceiling) and passes in
+# _of_operators_without_their_space; ExpressionSameAsBefore ends in error (the function did not exist).
+def expression_parts_0130(value):
+    return re.split(r"\s+(?:OR|AND|WITH)\s+", value)
+
+
+def is_spdx_expression_0130(value):
+    parts = expression_parts_0130(value)
+    return len(parts) > 1 and all(sbom.is_spdx_id(p.strip("() ")) or re.search(r"-exception(-[0-9.]+)?$", p.strip("() ")) for p in parts)
+
+
+def fixture_licences():
+    """licence strings of the generators' documents under tests/fixtures (SPDX and CycloneDX)"""
+    found = set()
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("licenseConcluded", "licenseDeclared", "simplelicensing_licenseExpression", "expression") and isinstance(v, str):
+                    found.add(v)
+                walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    for p in glob.glob(os.path.join(ROOT, "tests", "fixtures", "**", "*.json"), recursive=True):
+        try:
+            with open(p, encoding="utf-8") as f:
+                walk(json.load(f))
+        except ValueError:
+            pass
+    return sorted(found)
+
+
+class ExpressionSameAsBefore(unittest.TestCase):
+    def same(self, s):
+        self.assertEqual(sbom._expression_parts(s), expression_parts_0130(s), repr(s))
+        self.assertEqual(bool(sbom.is_spdx_expression(s)), bool(is_spdx_expression_0130(s)), repr(s))
+
+    def test_examples_of_the_rule(self):
+        for value, parts in (("MIT", ["MIT"]), ("Apache-2.0 OR BSD-3-Clause", ["Apache-2.0", "BSD-3-Clause"]),
+                             ("A  AND\tB WITH\nC", ["A", "B", "C"]), ("A OR AND B", ["A", "AND B"]), ("A OR  OR B", ["A", "OR B"]),
+                             (" OR ", ["", ""]), ("A OR", ["A OR"]), ("OR B", ["OR B"]), ("A ORB", ["A ORB"]), ("A or B", ["A or B"]),
+                             ("A OR B OR C", ["A", "B", "C"]), ("A OR OR OR B", ["A", "OR", "B"]), ("A\u00a0OR\u2028B", ["A", "B"]), ("", [""])):
+            self.assertEqual(sbom._expression_parts(value), parts, value)
+            self.same(value)
+        self.assertTrue(sbom.is_spdx_expression("Apache-2.0 OR BSD-3-Clause"))
+        self.assertTrue(sbom.is_spdx_expression("GPL-2.0-only WITH Classpath-exception-2.0"))
+        self.assertFalse(sbom.is_spdx_expression("MIT"))
+        self.assertFalse(sbom.is_spdx_expression("Foo OR Bar"))
+
+    def test_every_short_sequence(self):
+        n = 0
+        pieces = (" ", "\n", "OR", "AND", "WITH", "x", "(", "O")
+        for length in range(7):
+            for t in itertools.product(pieces, repeat=length):
+                self.same("".join(t))
+                n += 1
+        self.assertEqual(n, sum(8 ** k for k in range(7)))
+
+    def test_random_strings(self):
+        rnd = random.Random(20261120)
+        pieces = [" ", "  ", "\t", "\n", "\r", "\x1c", "\u00a0", "\u2028", "\u3000", "\u200b", "OR", "AND", "WITH", "or", "O", "R", "W",
+                  "MIT", "Apache-2.0", "GPL-2.0-only", "Classpath-exception-2.0", "-exception", "-exception-1.", "(", ")", "x"]
+        for _ in range(40000):
+            self.same("".join(rnd.choice(pieces) for _ in range(rnd.randrange(12))))
+
+    def test_licences_of_the_fixtures_and_changes_to_them(self):
+        real = fixture_licences()
+        self.assertGreaterEqual(len(real), 6)
+        self.assertIn("(MIT OR Apache-2.0)", real)
+        self.assertTrue(sbom.is_spdx_expression("(MIT OR Apache-2.0)"))
+        rnd = random.Random(1120)
+        pieces = [" ", "\n", " OR ", " AND ", " WITH ", "OR", "(", ")", "MIT", "\u00a0"]
+        for s in real:
+            self.same(s)
+            for _ in range(200):
+                self.same(changed(rnd, s, pieces))
+
+
+RECORD = """
+import json, os, sys
+from omega_cra_evol.sbom import sbom_from_spdx
+from omega_cra_evol.locker import EvidenceLocker
+r = sbom_from_spdx(sys.argv[1], "prod", "1.0")
+e = EvidenceLocker(os.path.join(os.path.dirname(sys.argv[1]), "l.jsonl"), "prod", "1.0").record_sbom(r, source_path=sys.argv[1])
+print(json.dumps([e["idx"], len(r.components[0].license)]))
+"""
+
+
+class LinearTimeLicence(unittest.TestCase):
+    def record(self, licence):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)        # 1 MB each: nothing is left in the temporary folder
+        p = os.path.join(d, "big.spdx.json")
+        doc = spdx_document()
+        doc["packages"][1].update(licenseConcluded=licence, licenseDeclared=licence)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.assertGreater(os.path.getsize(p), MEGABYTE)
+        ok, out = run_child(RECORD, p)
+        self.assertTrue(ok, f"not recorded within {CEILING} s: {out}")
+        return json.loads(out)
+
+    def test_licence_of_one_megabyte_of_spaces(self):
+        self.assertEqual(self.record("a" + " " * MEGABYTE + "b"), [0, MEGABYTE + 2])
+
+    def test_licence_of_one_megabyte_of_operators_without_their_space(self):
+        self.assertEqual(self.record("a" + " OR" * (MEGABYTE // 3) + "b"), [0, MEGABYTE + 1])
+
+
 if __name__ == "__main__":
     unittest.main()

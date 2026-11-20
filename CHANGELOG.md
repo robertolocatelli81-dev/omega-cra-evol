@@ -34,6 +34,14 @@ exit code changes for a document that was read before; `tests/test_sentry_202611
   source document, writes a pack, a signed tip and a signature, and each is the ledger itself (the caller's file,
   opened for append) or is created with `O_EXCL`. The files `time_anchor` gives to `openssl` are inside a
   `tempfile.mkdtemp` folder; `scripts/` and `verifiers/` (development tools) were not changed.
+- **A licence expression is split at its operators in one pass** (rules 12 and 13(3); found by measuring the other
+  expressions of the package after the two above). `is_spdx_expression` — reached by `record_sbom` with the licence of
+  each component of an ingested document — split with a regular expression that was quadratic in a run of white space:
+  a `licenseConcluded` of `a`, 4,000 / 8,000 / 16,000 / 32,000 spaces and `b` took 0.10 / 0.37 / 1.46 / 5.83 s in
+  `record_sbom` (32 kB of letters: 0.015 s). Now 0.014 s for the 32 kB one, and a 1 MB one is recorded within the
+  test's ceiling. The parts and the answer are the same as before: compared on every sequence of up to 6 pieces among
+  space, line feed, `OR`, `AND`, `WITH`, `x`, `(`, `O` (299,593), 40,000 seeded random strings and the licences of
+  the documents in `tests/fixtures` with 200 changes each.
 
 ## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 
