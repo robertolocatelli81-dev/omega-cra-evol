@@ -275,7 +275,8 @@ The results are those of 0.13.0; they are written here because the code no longe
    Python's `str.isspace()` says.
 2. **Tool** (§6.8 Table 9: "`Tool: toolidentifier-version`"). The first item of `creationInfo.creators` that starts
    with `Tool:` is taken, every `Tool:` in it is removed and the rest is read as in point 1; `source.generator` is that
-   text up to its first `:` (the whole text when it has none; this holds when `spdxVersion` has no `:` itself). The version is split off where, reading from the left,
+   text up to its first `:` (the whole text when it has none; this holds when `spdxVersion` has no `:` itself); when
+   no item starts with `Tool:`, or that text is empty, `source.generator` is `unknown-tool` and the version is empty. The version is split off where, reading from the left,
    the text is for the first time one or more decimal digits, a `.`, a decimal digit, and from there to the end only
    letters, digits, `_`, `.` and `-`: `source.generator_version` is the text from that point, and the name is the text
    before it without one `-` or one white-space character immediately before the version, and then without the `-` at
@@ -295,7 +296,10 @@ The results are those of 0.13.0; they are written here because the code no longe
 
 `marker_applies` answers `True`, `False` or `None` for every text: a marker whose parentheses nest deeper than the
 interpreter follows (`RecursionError`, in `packaging` or in the fallback) is `None`, kept and counted like every
-marker not evaluated. Measured on 034ed13 on 20/11/2026 (Python 3.11.2, `packaging` 26.2): `python_version >= '3'`
+marker not evaluated, and so is a marker on which `packaging` raises any other exception (measured on 2482485 on
+20/11/2026 with `packaging` 26.2 and 26.3: `ValueError` for a version of more than 4,300 digits, Python's limit on the
+conversion of a decimal string to an integer, `KeyError` for `'x' ~= '3.*'`, `SyntaxError` for `python_version == '\'`;
+each also ended `cra sbom --installed --transitive` of 0.13.0 with a traceback, exit 1). Measured on 034ed13 on 20/11/2026 (Python 3.11.2, `packaging` 26.2): `python_version >= '3'`
 inside 2,000 pairs of parentheses ended the call with `RecursionError`; with 400 pairs the fallback alone did, where
 `packaging` answers `True` — there the fallback is now `None`, not `packaging`'s boolean, which the rule above allows
 (with 100 pairs both answer `True`).

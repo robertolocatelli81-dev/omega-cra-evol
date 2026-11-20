@@ -454,6 +454,8 @@ def marker_applies(marker: str) -> Optional[bool]:
     except (UndefinedEnvironmentName, InvalidMarker, UndefinedComparison,    # 18/11/2026: UndefinedComparison was
             RecursionError):                                                 # a traceback; 20/11/2026: so was RecursionError
         return None
+    except Exception:   # 20/11/2026: packaging 26.2/26.3 also raise ValueError (a version of more than 4,300 digits),
+        return None     # KeyError (`'x' ~= '3.*'`) and SyntaxError (`python_version == '\'`): any other exception is None too
 
 
 def _req_name(req: str) -> str:
@@ -483,7 +485,7 @@ _WHITE_SPACE = re.compile(r"\s+")
 
 
 def _expression_parts(value: str) -> List[str]:
-    """The text between the operators ` OR `, ` AND `, ` WITH ` (white space, the word, white space), left to right
+    r"""The text between the operators ` OR `, ` AND `, ` WITH ` (white space, the word, white space), left to right
     (spec/SBOM_INGEST.md, rules 12 and 13(3)). One pass over the runs of white space. Until 0.13.0 this was
     re.split(r"\s+(?:OR|AND|WITH)\s+", value): the same parts, quadratic in a run of white space (20/11/2026: a licence
     of 32 kB of spaces took 5.8 s in `record_sbom`)."""
@@ -1248,7 +1250,7 @@ def _agent_name(v: Any) -> str:
 
 
 def _generator_name_version(text: str) -> Tuple[str, str]:
-    """'syft-1.52.0' / 'trivy-0.74.0' → name + version (spec/SBOM_INGEST.md, rules 12 and 13(2)); no version found:
+    r"""'syft-1.52.0' / 'trivy-0.74.0' → name + version (spec/SBOM_INGEST.md, rules 12 and 13(2)); no version found:
     (text, ""). One pass over the text. Until 0.13.0 this was re.match(r"^(.*?)[-\s]?(\d+\.\d+[\w.\-]*)$", text) with
     group(1).rstrip("-") and group(2): the same result on every input, quadratic in len(text) (20/11/2026: 48 kB of
     "1.11.11.1…!" took 22.7 s)."""

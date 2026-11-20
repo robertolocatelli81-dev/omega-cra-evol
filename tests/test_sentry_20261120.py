@@ -688,6 +688,36 @@ class Markers(unittest.TestCase):
         self.assertTrue(ok, f"not evaluated within {CEILING} s: {out}")
         self.assertEqual(out, "False")
 
+    def test_an_exception_of_packaging_is_not_evaluated(self):
+        # NEMESIS 20/11/2026 on 2482485: with packaging 26.2 (Python 3.11) and 26.3 (Python 3.13) these three ended
+        # `marker_applies` with ValueError, KeyError and SyntaxError (and `cra sbom --installed --transitive` with a
+        # traceback, exit 1); without packaging the fallback answers them. Never a traceback, with or without packaging.
+        for m in ("python_version >= '" + "1" * 4301 + "'", "'x' ~= '3.*'", "' \n < > === == '1!2.0'",
+                  "python_version == '\\'",
+                  "python_full_version == '3." + "1" * 5000 + "'", "python_version ~= '1." + "2" * 5000 + "'"):
+            self.assertIn(sbom.marker_applies(m), (True, False, None), m[:40])
+            self.assertIn(sbom._fallback_marker(m), (True, False, None), m[:40])
+        rnd = random.Random(20261120)
+        pieces = ["python_version", "python_full_version", "os_name", "extra", "==", "!=", "~=", "===", "<", ">=", "in",
+                  "not", "and", "or", "(", ")", "'3'", "'3.*'", "'1!2.0'", "'1.0+x'", "'x'", "'", " ", "\n",
+                  "'" + "9" * 4301 + "'"]
+        for _ in range(3000):
+            m = " ".join(rnd.choice(pieces) for _ in range(rnd.randrange(1, 8)))
+            self.assertIn(sbom.marker_applies(m), (True, False, None), m[:60])
+
+
+class NoInvalidEscapeInTheSource(unittest.TestCase):
+    def test_the_package_compiles_with_warnings_as_errors(self):
+        # NEMESIS 20/11/2026 on 2482485: two docstrings held `\s` in a plain string (SyntaxWarning from Python 3.12,
+        # DeprecationWarning before; a SyntaxError under -W error).
+        import warnings
+        for path in sorted(glob.glob(os.path.join(ROOT, "omega_cra_evol", "*.py"))):
+            with open(path, encoding="utf-8") as f:
+                src = f.read()
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                compile(src, path, "exec")
+
 
 if __name__ == "__main__":
     unittest.main()
