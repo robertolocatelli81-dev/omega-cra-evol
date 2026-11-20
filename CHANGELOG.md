@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — text of a third party is read in time proportional to its length; the ledger's state file is written like every other file
+## 0.13.1 — 2026-11-20 — text of a third party is read in time proportional to its length; the ledger's state file is written like every other file
 
 Found by a security review of commit 034ed13 (0.13.0) on 20/11/2026 and measured that day on that commit with Python
 3.11.2; `spec/SBOM_INGEST.md`, amendment of 20/11/2026 (rules 12 and 13), written before the code. No verdict, record or
