@@ -1217,7 +1217,13 @@ def _agent_name(v: Any) -> str:
     for pfx in ("Organization:", "Person:"):
         if v.startswith(pfx):
             v = v[len(pfx):].strip()
-    return re.sub(r"\s*\([^()]*@[^()]*\)\s*$", "", v).strip() if v else ""
+    # spec/SBOM_INGEST.md, rules 12 and 13(1): by position, one pass. Until 0.13.0 this was
+    # re.sub(r"\s*\([^()]*@[^()]*\)\s*$", "", v), quadratic in len(v) (20/11/2026: 100 kB of "(@@@…x(" took 15 s).
+    if v.endswith(")"):
+        i = v.rfind("(")
+        if i != -1 and "@" in v[i + 1:-1] and ")" not in v[i + 1:-1]:
+            v = v[:i].strip()
+    return v
 
 
 def _generator_name_version(text: str) -> Tuple[str, str]:

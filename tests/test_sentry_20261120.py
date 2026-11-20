@@ -201,5 +201,86 @@ class LinearTimeTool(Ingests):
         self.assertEqual(self.ingest(tool="tool-" + "1" * MEGABYTE + "-" + "1." * 8 + "1")[:2], ["tool-" + "1" * 15, "1.1.1.1.1.1.1.1.1"])
 
 
+# ── 2. the name of a supplier or originator (rules 12 and 13(1)) ────────────────────────────────────────────────────
+# 034ed13, omega_cra_evol/sbom.py 1220: re.sub(r"\s*\([^()]*@[^()]*\)\s*$", "", v). Measured there on 20/11/2026: a
+# supplier of 100 kB ("(", "@" repeated, "x(") took 15.1 s.
+# With the package of 034ed13 (20/11/2026): LinearTimeSupplier fails in _at_signs, _white_space and
+# test_originator_of_one_megabyte (stopped at the ceiling) and passes in _parentheses (not quadratic there);
+# AgentNameSameAsBefore passes there, as it must: the result did not change.
+def agent_name_0130(v):
+    v = sbom._clean(v)
+    for pfx in ("Organization:", "Person:"):
+        if v.startswith(pfx):
+            v = v[len(pfx):].strip()
+    return re.sub(r"\s*\([^()]*@[^()]*\)\s*$", "", v).strip() if v else ""
+
+
+class AgentNameSameAsBefore(unittest.TestCase):
+    """rule 13(1): supplier, originator and the text after `Tool:`"""
+
+    def same(self, s):
+        self.assertEqual(sbom._agent_name(s), agent_name_0130(s), repr(s))
+
+    def test_examples_of_the_rule(self):
+        for value, name in (("Organization: Acme (Bar) Ltd (x@y.z)", "Acme (Bar) Ltd"), ("Acme (Bar) Ltd", "Acme (Bar) Ltd"),
+                            ("Person: Jane Doe (jane.doe@example.com)", "Jane Doe"),      # SPDX 2.3.1 §7.5.3, example 1
+                            ("Organization: SPDX (Spdx-tech@lists.spdx.org)", "SPDX"), ("  Organization:   Acme  ", "Acme"),
+                            ("Organization: Person: Jane", "Jane"), ("Person: Organization: Jane", "Organization: Jane"),
+                            ("Acme (a@b) (c)", "Acme (a@b) (c)"), ("Acme (a@b)(c@d)", "Acme (a@b)"), ("Acme ((a@b)", "Acme ("),
+                            ("Acme (a@b))", "Acme (a@b))"), ("(a@b)", ""), ("Acme \t (a@b)", "Acme"), ("Acme (@)", "Acme"),
+                            ("Acme ()", "Acme ()"), ("Acme (a@b) ", "Acme"), ("NOASSERTION", ""), ("NONE", ""), ("", ""), ("   ", "")):
+            self.assertEqual(sbom._agent_name(value), name, value)
+            self.same(value)
+
+    def test_not_a_string_is_no_name(self):
+        for v in (None, 0, 1, 1.5, True, [], ["Organization: Acme"], {}, {"name": "Acme"}, b"Organization: Acme"):
+            self.assertEqual(sbom._agent_name(v), "")
+            self.same(v)
+
+    def test_every_short_string(self):
+        n = 0
+        for alphabet, longest in (("(@) a\n", 7), ("(@) \x1cé:", 6)):
+            for length in range(longest + 1):
+                for t in itertools.product(alphabet, repeat=length):
+                    self.same("".join(t))
+                    n += 1
+        self.assertEqual(n, sum(6 ** k for k in range(8)) + sum(7 ** k for k in range(7)))
+
+    def test_random_strings(self):
+        rnd = random.Random(20261120)
+        pieces = ["(", ")", "@", " ", "\t", "\n", "\r", "\x0b", "\x0c", "\x1c", "\x1f", "\x85", " ", " ", "　", "​",
+                  "Organization:", "Person:", "NOASSERTION", "NONE", "a", "é", "Acme", "x@y.z", "(x@y.z)", " (x@y.z)", "()", "(@)"]
+        for _ in range(40000):
+            self.same("".join(rnd.choice(pieces) for _ in range(rnd.randrange(12))))
+
+    def test_strings_of_the_fixtures_and_changes_to_them(self):
+        agents, creators = fixture_strings()
+        real = agents + creators + [c.replace("Tool:", "") for c in creators]
+        self.assertGreaterEqual(len(agents), 5)
+        self.assertGreaterEqual(len(creators), 8)
+        rnd = random.Random(1120)
+        pieces = ["(", ")", "@", " ", "\n", " (a@b.c)", "(a@b.c) ", "Organization: ", "Person: ", " ", ":"]
+        for s in real:
+            self.same(s)
+            for _ in range(400):
+                self.same(changed(rnd, s, pieces))
+
+
+class LinearTimeSupplier(Ingests):
+    def test_supplier_of_one_megabyte_at_signs(self):
+        self.assertEqual(self.ingest(supplier="Organization: (" + "@" * MEGABYTE + "x(")[2], ["(" + "@" * 19])
+
+    def test_supplier_of_one_megabyte_white_space(self):
+        self.assertEqual(self.ingest(supplier="Organization: a" + " " * MEGABYTE + "b")[2], ["a" + " " * 19])
+        self.assertEqual(self.ingest(supplier="Organization: Acme" + " " * MEGABYTE + "(a@b.c)")[2], ["Acme"])
+
+    def test_supplier_of_one_megabyte_parentheses(self):
+        self.assertEqual(self.ingest(supplier="Organization: a" + " (@)" * (MEGABYTE // 4) + "x")[2], ["a (@) (@) (@) (@) (@"])
+        self.assertEqual(self.ingest(supplier="Organization: a" + "(" * MEGABYTE + "@)")[2], ["a" + "(" * 19])
+
+    def test_originator_of_one_megabyte(self):
+        self.assertEqual(self.ingest(supplier="NOASSERTION", originator="Person: (" + "@" * MEGABYTE + "x(")[2], ["(" + "@" * 19])
+
+
 if __name__ == "__main__":
     unittest.main()

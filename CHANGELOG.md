@@ -15,6 +15,14 @@ exit code changes for a document that was read before; `tests/test_sentry_202611
   `1.-a !` and line feed (960,800 strings), up to 6 over a second alphabet with a non-ASCII decimal digit, `²`, `_`
   and other white space (299,593), 40,000 seeded random strings, and the creators of the documents in `tests/fixtures`
   with 400 changes each.
+- **The name of an SPDX `supplier` or `originator` is read in one pass** (rules 12 and 13(1); SPDX 2.3.1 §7.5 and
+  §7.6: "organization name and optional `(<email>)`"). 0.13.0 removed the trailing e-mail with a regular expression
+  that was quadratic: a supplier of `Organization: (`, `@` repeated 25,000 / 50,000 / 100,000 times and `x(` took
+  0.95 / 3.76 / 15.1 s (200 kB of letters: 0.021 s). Now the 100 kB document takes 0.011 s and a 1 MB one under 0.3 s.
+  The name is the same as before on every input: compared with the expression of 0.13.0 on every string of up to 7
+  characters over `(@) a` and line feed (335,923 strings), up to 6 over a second alphabet with other white space
+  (137,257), 40,000 seeded random strings, and the supplier, originator and creator strings of the documents in
+  `tests/fixtures` with 400 changes each.
 
 ## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 
