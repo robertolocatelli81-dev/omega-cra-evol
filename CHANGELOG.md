@@ -42,6 +42,25 @@ exit code changes for a document that was read before; `tests/test_sentry_202611
   test's ceiling. The parts and the answer are the same as before: compared on every sequence of up to 6 pieces among
   space, line feed, `OR`, `AND`, `WITH`, `x`, `(`, `O` (299,593), 40,000 seeded random strings and the licences of
   the documents in `tests/fixtures` with 200 changes each.
+- **`marker_applies` answers `None` for a marker nested deeper than the interpreter follows, and the fallback reads its
+  tokens in one pass** (`spec/SBOM_INGEST.md`, "Markers of the installed floor: nesting and length"; the text is the
+  `Requires-Dist` of an installed distribution, `cra sbom --installed`). 0.13.0: `python_version >= '3'` inside 2,000
+  pairs of parentheses ended the call with `RecursionError` (with `packaging` 26.2 and with the fallback; the fallback
+  already with 400 pairs), although the rule says the answer is always `True`, `False` or `None`; and the fallback
+  copied the rest of the text at each token: 12,500 / 25,000 / 50,000 / 100,000 conditions joined by `and` (0.24 to
+  1.9 MB) took 2.35 / 7.01 / 20.6 / 72.6 s, now 0.05 / 0.09 / 0.18 / 0.36 s. The tokens are the same as before (compared
+  on 75,595 short strings and 40,000 seeded random ones), and up to 39 pairs of parentheses around a marker do not
+  change its answer.
+- **The other expressions of the package that read text of a third party were measured the same day** — a search, not
+  a proof: for each, strings made of a prefix, a piece repeated n times and a suffix, n doubled up to 300 kB or 0.4 s,
+  flagged when the time more than triples at a doubling. 52 expressions and procedures, 20 of them the distinct
+  `pattern` values of the bundled CycloneDX, SPDX and OpenVEX schemas as `ecma_pattern` compiles them. The bench flags
+  the two expressions of 0.13.0 above (its positive control). On this tree the four procedures changed here are not
+  flagged; three expressions are, at times of 0.08 to 0.14 s, near the bench's threshold (`IRI_REFERENCE`, `URI`, and
+  the recognition of SPDX tag-value, which is given the first 4,096 bytes only): re-measured on eleven shapes at four
+  lengths from 0.5 MB up, each double the one before (best of three runs), their time is at most 2.43 times at each
+  doubling. The `format` checks of
+  `jsonschema` and what `openssl` reads were not measured.
 
 ## 0.13.0 — 2026-11-19 — SBOMs checked against the rules of their specification text, not only its schema
 

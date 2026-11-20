@@ -344,10 +344,8 @@ def _version_op(op: str, left: str, right: str) -> Optional[bool]:
 
 def _marker_tokens(marker: str) -> Optional[List[Tuple[str, str]]]:
     out: List[Tuple[str, str]] = []
-    i = 0
-    while i < len(marker):
-        if marker[i:].strip() == "":
-            break
+    i, end = 0, len(marker.rstrip())    # until 0.13.0 `marker[i:].strip() == ""` at every token: a copy of the rest each time
+    while i < end:
         m = _MARKER_TOKEN.match(marker, i)
         if not m:
             return None
@@ -433,7 +431,7 @@ def _fallback_marker(marker: str) -> Optional[bool]:
 
     try:
         v = disj()
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, RecursionError):   # parentheses nested deeper than this interpreter follows: None
         return None
     if pos != len(toks) or unknown:
         return None
@@ -453,8 +451,9 @@ def marker_applies(marker: str) -> Optional[bool]:
         return _fallback_marker(marker)
     try:
         return bool(Marker(marker).evaluate())
-    except (UndefinedEnvironmentName, InvalidMarker, UndefinedComparison):   # 18/11/2026: UndefinedComparison was
-        return None                                                          # a traceback
+    except (UndefinedEnvironmentName, InvalidMarker, UndefinedComparison,    # 18/11/2026: UndefinedComparison was
+            RecursionError):                                                 # a traceback; 20/11/2026: so was RecursionError
+        return None
 
 
 def _req_name(req: str) -> str:

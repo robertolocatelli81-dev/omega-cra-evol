@@ -611,5 +611,83 @@ class LinearTimeLicence(unittest.TestCase):
         self.assertEqual(self.record("a" + " OR" * (MEGABYTE // 3) + "b"), [0, MEGABYTE + 1])
 
 
+# ── 5. environment markers of the installed floor: nesting and length ───────────────────────────────────────────────
+# spec/SBOM_INGEST.md, "PEP 508 markers of the installed floor": `marker_applies` answers True, False or None.
+# Measured on 034ed13 on 20/11/2026 (Python 3.11.2, packaging 26.2): a marker inside 2,000 pairs of parentheses ended
+# `marker_applies` with RecursionError, with `packaging` and with the fallback (the fallback from 400 pairs); the
+# fallback's tokens were read with a copy of the rest of the text at each token: 12,500 / 25,000 / 50,000 / 100,000
+# conditions joined by `and` (0.24 to 1.9 MB) took 2.4 / 7.0 / 20.6 / 72.6 s.
+# With the package of 034ed13 (20/11/2026): test_nesting_deeper_than_the_interpreter_follows_is_not_evaluated ends in
+# error (RecursionError) and test_marker_of_two_megabytes_in_the_fallback fails (stopped at the ceiling); the other
+# two pass there, as they must.
+def marker_tokens_0130(marker):
+    out = []
+    i = 0
+    while i < len(marker):
+        if marker[i:].strip() == "":
+            break
+        m = sbom._MARKER_TOKEN.match(marker, i)
+        if not m:
+            return None
+        kind = m.lastgroup or ""
+        val = m.group(kind)
+        if kind == "word" and val in ("and", "or", "in", "not"):
+            kind = val
+        out.append((kind, val))
+        i = m.end()
+    return out
+
+
+FALLBACK = """
+import sys
+from omega_cra_evol import sbom
+print(sbom._fallback_marker(" and ".join(["os_name == 'x'"] * int(sys.argv[1]))))
+"""
+
+
+class Markers(unittest.TestCase):
+    def test_tokens_are_those_of_0130(self):
+        n = 0
+        for alphabet, longest in ((("a", " ", "'", "(", "=", "\n"), 6), (("and", "\u00a0", '"', ")", "<", "!", "x'"), 5)):
+            for length in range(longest + 1):
+                for t in itertools.product(alphabet, repeat=length):
+                    s = "".join(t)
+                    self.assertEqual(sbom._marker_tokens(s), marker_tokens_0130(s), repr(s))
+                    n += 1
+        self.assertEqual(n, sum(6 ** k for k in range(7)) + sum(7 ** k for k in range(6)))
+        rnd = random.Random(20261120)
+        pieces = ["os_name", "python_version", "==", ">=", "~=", "===", "<", "'posix'", '"3.9"', "'", '"', "(", ")", " ", "\t", "\n",
+                  "\x1c", "\u00a0", "\u3000", "and", "or", "not", "in", "é", "!", "1"]
+        for _ in range(40000):
+            s = "".join(rnd.choice(pieces) for _ in range(rnd.randrange(14)))
+            self.assertEqual(sbom._marker_tokens(s), marker_tokens_0130(s), repr(s))
+
+    def test_parentheses_do_not_change_the_answer(self):
+        rnd = random.Random(20261120)
+        atoms = ["python_version >= '3'", "python_version < '2.0'", "os_name == 'no-such-os'", "os_name != 'no-such-os'",
+                 "extra == 'x'", "os_name ~= 'posix'", "python_version >= '3' and os_name != 'no-such-os'",
+                 "python_version < '2.0' or os_name != 'no-such-os'", "os_name"]
+        for _ in range(600):
+            m, k = rnd.choice(atoms), rnd.randrange(1, 40)
+            for f in (sbom._fallback_marker, sbom.marker_applies):
+                self.assertEqual(f("(" * k + m + ")" * k), f(m), (k, m))
+
+    def test_nesting_deeper_than_the_interpreter_follows_is_not_evaluated(self):
+        for n in (300, 400, 1000, 2000, 50000):
+            for inner, answers in (("python_version >= '3'", (True, None)), ("python_version < '2.0'", (False, None))):
+                m = "(" * n + inner + ")" * n
+                self.assertIn(sbom.marker_applies(m), answers, n)          # an answer, never a traceback
+                self.assertIn(sbom._fallback_marker(m), answers, n)
+        for n in (2000, 50000):
+            self.assertIsNone(sbom._fallback_marker("(" * n + "python_version >= '3'" + ")" * n))
+            self.assertIsNone(sbom._fallback_marker("(" * n + "python_version >= '3'"))      # unbalanced, as before
+            self.assertIsNone(sbom.marker_applies("(" * n))
+
+    def test_marker_of_two_megabytes_in_the_fallback(self):
+        ok, out = run_child(FALLBACK, "100000")
+        self.assertTrue(ok, f"not evaluated within {CEILING} s: {out}")
+        self.assertEqual(out, "False")
+
+
 if __name__ == "__main__":
     unittest.main()
