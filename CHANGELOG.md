@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.13.2 — 2026-11-27 — a secret that comes in never goes out
+## 0.13.3 — 2026-11-28 — a secret that comes in never goes out
+
+0.13.2 was tagged (a6fdc14) but not released: its changelog miscounted the tests that fail on 0.13.1; 0.13.3 has the
+same code and the corrected count.
 
 **Windows: the ledger is written there.** Until 0.13.1 `Ledger.append` took `fcntl.flock`, which Windows does not
 have, and refused every append there ("exclusive lock unavailable on this filesystem"): every command with a ledger
@@ -30,7 +33,7 @@ user who set nothing (CI run 45979434746, Windows, Python 3.9; `DefaultEncoding`
 JS, Go and Rust verifiers write it. This holds on every system: with a UTF-8 locale, and with C or POSIX (which Python
 turns into UTF-8), the bytes are those of 0.13.1 (measured on Linux, Python 3.9 and 3.13). Under a locale that is not
 UTF-8 the receipt changes: 0.13.1 wrote it in the locale's encoding and exited 74 when it held a character outside it
-(`cra verify` under `en_US.ISO-8859-1`: `'latin-1' codec can't encode character '\u2026'`); 0.13.2 writes UTF-8, and a
+(`cra verify` under `en_US.ISO-8859-1`: `'latin-1' codec can't encode character '\u2026'`); 0.13.3 writes UTF-8, and a
 non-ASCII path the receipt repeats is the locale's reading of its bytes written in UTF-8 (`dé` arrives as `dÃ©`), where
 0.13.1 gave back its bytes.
 
@@ -57,7 +60,9 @@ variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and 
 `KMSSigner`, the names of a `--trust-store` and the private key of a long-term `Signer`. `tests/test_secrets.py` puts a
 canary into each and searches standard output and error, every file written, the exception, and the environment and
 argv of the one child process (openssl), raw and in hex, HEX, decimal, base64 and base64url at the three offsets. On
-0.13.1 15 of its 27 tests fail (16 on 0.12.0); the outputs where the canary was found:
+0.13.1 16 of its 27 tests fail (14 failures, 2 errors; 17 on 0.12.0: 15 and 2). 0.13.2 wrote 15 and 16, counted before
+the environment-variable census test changed: it now expects `PYTHONIOENCODING` too. The outputs where the canary was
+found:
 
 - **A KMS endpoint with user information is refused before the network**, without repeating the URL. 0.13.1 accepted
   `https://u:PASSWORD@host/` in `AWS_KMS_ENDPOINT` (or `endpoint=`): http.client read `PASSWORD@host` as a port, and the
