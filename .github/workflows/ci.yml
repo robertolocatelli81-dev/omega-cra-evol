@@ -5,45 +5,66 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ${{ matrix.python-version == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}   # 3.9 has no build for ubuntu-26.04 (ubuntu-latest from 2026-10-19)
+    # the WHOLE suite on every system x every declared Python x every optional-dependency set (Roberto, 24/11/2026):
+    # full = [sign,schema] + the cryptovalid wheel (interop runs); sign = cryptography only (schema/interop skip);
+    # none = no optional dependency (signing/seal/tip skip) - a regression in a fallback path goes red on the system it breaks.
+    # macOS arm64 and Windows: setup-python's "3.9" is 3.9.13, the last 3.9 build published for them.
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.11", "3.12"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        extras: [full, sign, none]
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.9') && 'ubuntu-24.04' || matrix.os }}   # 3.9 has no build for ubuntu-26.04 (ubuntu-latest from 2026-10-19)
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (with signing extra) + the cryptovalid verifier (same author, separate implementation) for the interop test
+      - name: Install (full) - signing + schema extras + the cryptovalid verifier (same author, separate implementation) for the interop test
+        if: matrix.extras == 'full'
         run: |
-          pip install ".[sign,schema]"
-          pip install https://github.com/robertolocatelli81-dev/cryptovalid-opencore/releases/download/v0.15.0/cryptovalid_opencore-0.15.0-py3-none-any.whl
-      - name: Unit tests (every suite; interop against cryptovalid runs because the wheel is installed)
-        shell: bash
+          python -m pip install ".[sign,schema]"
+          python -m pip install https://github.com/robertolocatelli81-dev/cryptovalid-opencore/releases/download/v0.15.0/cryptovalid_opencore-0.15.0-py3-none-any.whl
+      - name: Install (sign) - cryptography only; jsonschema must be absent
+        if: matrix.extras == 'sign'
         run: |
-          set -o pipefail            # round 9: without it `tee` hid unittest's exit code — this job could not go red
-          python -B -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee /tmp/ut.log
+          python -m pip install ".[sign]"
+          if python -c "import jsonschema" 2>/dev/null; then echo "jsonschema must not be installed here"; exit 1; fi
+      - name: Install (none) - the package with no extra; cryptography and jsonschema must be absent
+        if: matrix.extras == 'none'
+        run: |
+          python -m pip install .
+          if python -c "import cryptography" 2>/dev/null; then echo "cryptography must not be installed here"; exit 1; fi
+          if python -c "import jsonschema" 2>/dev/null; then echo "jsonschema must not be installed here"; exit 1; fi
+      - name: Unit tests (every suite)
+        run: |
+          set -o pipefail            # round 9: without it `tee` hid unittest's exit code - this job could not go red
+          python -B -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee ut.log
           python - <<'PY'
-          # round 7: a `__main__` block above a class hid two tests from the per-file loop — every test class in every file must have run,
+          # round 7: a `__main__` block above a class hid two tests from the per-file loop - every test class in every file must have run,
           # and the suite must have ended OK (a FAIL line also names the class)
           import ast, glob, re
-          ran = open("/tmp/ut.log").read()
-          assert re.search(r"^OK( \(skipped=\d+\))?$", ran, re.M), "unittest did not end with OK"
+          ran = open("ut.log", encoding="utf-8", errors="replace").read()
+          assert re.search(r"^OK( \(skipped=\d+\))?\r?$", ran, re.M), "unittest did not end with OK"
           seen = lambda cls: re.search(r"\." + re.escape(cls) + r"[.)]", ran) is not None   # 3.9: "(mod.Class)"; 3.11+: "(mod.Class.test)"
           assert not seen("NoSuchTestClassXYZ"), "positive control: a fake class name must not match"
           for f in glob.glob("tests/test_*.py"):
-              for node in ast.parse(open(f).read()).body:
+              for node in ast.parse(open(f, encoding="utf-8").read()).body:
                   if isinstance(node, ast.ClassDef) and any(isinstance(b, ast.Attribute) and b.attr == "TestCase" for b in node.bases) \
                           and any(isinstance(m, ast.FunctionDef) and m.name.startswith("test") for m in node.body):
                       assert seen(node.name), f"{f}:{node.name} did not run"   # 18/11/2026: a base class with no test of its own runs nothing
           print("every TestCase class ran")
           PY
-      - name: Gate — a tampered pack MUST fail, an intact one MUST pass (exit codes)
+      - name: Gate - a tampered pack MUST fail, an intact one MUST pass (exit codes)
         run: |
           python - <<'PY'
           import json, os, subprocess, sys, tempfile
           d = tempfile.mkdtemp(); led = os.path.join(d, "l.jsonl"); pack = os.path.join(d, "p.json")
-          base = ["python", "-m", "omega_cra_evol.cli"]
+          base = [sys.executable, "-m", "omega_cra_evol.cli"]
           c = base + ["sbom", "--ledger", led, "--product", "p", "--version", "1", "--installed", "pip"]
           assert subprocess.run(c).returncode == 0
           assert subprocess.run(base + ["pack", "--ledger", led, "--product", "p", "--version", "1", "--out", pack]).returncode == 0
@@ -53,56 +74,13 @@ jobs:
           print("gate ok")
           PY
       - name: Both commands are installed and print the package version; the earlier import name still works and warns
-        shell: bash
         run: |
           v=$(python -c "import omega_cra_evol; print(omega_cra_evol.__version__)")
-          test "$(cra --version)" = "omega-cra-evol $v"
-          test "$(omega-cra-evol --version)" = "omega-cra-evol $v"
+          test "$(cra --version | tr -d '\r')" = "omega-cra-evol $v"
+          test "$(omega-cra-evol --version | tr -d '\r')" = "omega-cra-evol $v"
           if python -W error::DeprecationWarning -c "import cra_evidence" 2>/dev/null; then echo "positive control: import cra_evidence must warn"; exit 1; fi
           python -W ignore::DeprecationWarning -c "import cra_evidence, omega_cra_evol; assert cra_evidence.EvidenceLocker is omega_cra_evol.EvidenceLocker"
           echo "commands and alias ok"
-  test-sign-only:
-    # cryptography present, no jsonschema and no cryptovalid wheel: the schema/interop tests skip, everything else runs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with: {python-version: "3.11"}
-      - name: Unit tests with cryptography only
-        run: |
-          pip install ".[sign]"
-          python -c "import jsonschema" 2>/dev/null && { echo "jsonschema must not be installed here"; exit 1; } || true
-          python -B -m unittest discover -s tests -p 'test_*.py'
-  test-minimal:
-    # the optional-dependency paths, measured: no cryptography (signing/seal/tip tests skip, everything else runs),
-    # no jsonschema, no cryptovalid wheel — a regression in the fallback code or in the skip detection goes red here
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with: {python-version: "3.12"}
-      - name: Unit tests with NO optional dependency installed
-        run: |
-          python -c "import cryptography" 2>/dev/null && { echo "cryptography must not be installed here"; exit 1; } || true
-          python -c "import jsonschema" 2>/dev/null && { echo "jsonschema must not be installed here"; exit 1; } || true
-          python -B -m unittest discover -s tests -p 'test_*.py'
-  secret-leaks:
-    # tests/test_secrets.py on every system and every Python from the declared minimum (3.9) to the newest
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-    runs-on: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.9') && 'ubuntu-24.04' || matrix.os }}   # 3.9 has no build for ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install (with signing extra)
-        run: pip install ".[sign]"
-      - name: tests/test_secrets.py
-        run: python -B -m unittest discover -s tests -p test_secrets.py -v
   secrets:
     runs-on: ubuntu-latest
     steps:
