@@ -22,9 +22,9 @@ confidential, so that the answer serves the next person.
 - **Upgrading is meant to be safe**: within major version 0 the stable API breaks only in a minor release, after a
   deprecation period (API.md), and **evidence already written keeps verifying**: a pack, ledger or attestation made
   by an earlier release is accepted by later ones, because a format changes only under a new identifier.
-- **Python**: versions 3.9, 3.11 and 3.12 are tested in CI on every change. `requires-python` is `>=3.9`; other
-  versions are expected to work and are not claimed until CI runs them.
-- **Platforms**: CI runs on Linux. Other systems are not measured.
+- **Python**: versions 3.9 to 3.14 are tested in CI on every push and pull request. `requires-python` is `>=3.9`;
+  other versions are expected to work and are not claimed until CI runs them.
+- **Platforms**: CI runs the whole suite on Linux, macOS and Windows (GitHub-hosted runners).
 - **The deprecated import name `cra_evidence`** works and warns until a release on or after 2027-03-31.
 
 ## What to expect

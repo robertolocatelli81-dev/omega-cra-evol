@@ -241,7 +241,7 @@ format, Art. 13(24), as of 18/11/2026). `source.bsi_tr_03183_2` is `{"version": 
 "note": …}`: false for CycloneDX 1.2–1.5 and SPDX 2.x. It decides nothing (floor, exit code, refusal), and no other
 field of the TR is checked.
 
-## Amendment of 20/11/2026, written before the code — rules 12 and 13, the markers (not yet released)
+## Amendment of 20/11/2026, written before the code — rules 12 and 13, the markers (released in 0.13.1, 2026-11-20)
 
 Origin: a security review of commit 034ed13 (0.13.0) on 20/11/2026. Two SPDX text fields were read with regular
 expressions whose time grew with the square of the field's length: measured that day on 034ed13 (Python 3.11.2), a

@@ -115,8 +115,9 @@ which says nothing about identifiers.
   in JavaScript (Node, no dependencies), Go (standard library) and Rust; `verifiers/differential.py` builds intact and
   tampered packs and requires the same verdict and the same failing layers from all of them. The ledger also follows
   the profile of cryptovalid's verifiers (same author).
-- **CI** ([`.github/workflows/ci.yml`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.13.3/.github/workflows/ci.yml)): the suites on Python 3.9, 3.11 and 3.12, with
-  cryptography only and with no optional dependency; the differential oracle across Python, JS, Go and Rust; the
+- **CI** ([`.github/workflows/ci.yml`](https://github.com/robertolocatelli81-dev/omega-cra-evol/blob/v0.13.3/.github/workflows/ci.yml)): the whole suite on Linux, macOS and Windows
+  with Python 3.9 to 3.14, each with the signing and schema extras, with cryptography only and with no optional
+  dependency; the differential oracle across Python, JS, Go and Rust on the three systems; the
   official CycloneDX CLI and SPDX tools on the SBOM fixtures; gitleaks on the whole history. A weekly workflow
   re-reads ENISA's SRP glossary page and fails on any difference from the vendored snapshot.
 - **Public demo:** [omega-cra-evol-demo](https://github.com/robertolocatelli81-dev/omega-cra-evol-demo) installs a release
