@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import stat
+import time
 from datetime import datetime, timezone
 from typing import Any, BinaryIO, Dict, Iterator, List, Optional, Tuple
 
@@ -39,7 +40,29 @@ def _now_ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_WIN_LOCK_AT = 1 << 62   # Windows: one byte far past any real end is the mutex every writer locks (a range past EOF may be locked)
+
+
 def _lock(f) -> bool:
+    if os.name == "nt":   # 0.13.2: Windows has no flock; its equivalent is msvcrt.locking (until 0.13.1 every append was refused there)
+        try:
+            import msvcrt
+            pos = f.tell()
+            f.seek(_WIN_LOCK_AT)
+            deadline = time.monotonic() + 60
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)   # held until the handle closes, at the end of append
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.05)
+            f.seek(pos)
+            return True
+        except (ImportError, OSError) as e:
+            _log.warning("ledger: no exclusive lock on %s (%s): concurrent appends are not serialised", getattr(f, "name", "?"), type(e).__name__)
+            return False
     try:
         import fcntl
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)

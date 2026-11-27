@@ -2,6 +2,12 @@
 
 ## 0.13.2 — 2026-11-27 — a secret that comes in never goes out
 
+**Windows: the ledger is written there.** Until 0.13.1 `Ledger.append` took `fcntl.flock`, which Windows does not
+have, and refused every append there ("exclusive lock unavailable on this filesystem"): every command with a ledger
+failed on Windows. It now takes Windows' equivalent, `msvcrt.locking` on one byte far past the end, held until the
+handle closes. Found by the secret-leaks job on windows-latest (Python 3.9 to 3.14), the first job of this repository
+to run the commands there; `tests/test_ledger_windows_lock_20261127.py` plays msvcrt on every system (fails on 0.13.1).
+
 The class found on 25-26/11/2026 in ap2-evidence-pack 1.11.2 and cryptovalid-opencore 0.29.1 (same author), searched
 here on 27/11/2026. The inputs that take a secret, counted with `grep` on the sources: the seed files of `--key` (`sign`,
 `attest`) and `--tip-key` (every command with a ledger, `seal`), the seed `keygen` writes, `--aws-creds-file`, the
