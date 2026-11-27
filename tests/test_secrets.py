@@ -338,5 +338,138 @@ class TrustStoreNames(Base):
             self.assertEqual(("%d characters" % n) in r, n > 32, n)
 
 
+class Census27(Base):
+    """NEMESIS 27/11/2026: the class closed past the 13 inputs (a secret in place of any argument, a secret the run
+    holds inside an argument recorded as given, the creds file closed, one byte of a key file, the region)."""
+    SKP = "/" + SK[1:].replace("/", "A")      # a secret whose only "/" is its first character: its folder is the root
+
+    def digest(self, pack):
+        with open(pack, encoding="utf-8") as f:
+            return json.load(f)["pack_sha3"]
+
+    def test_a_secret_in_place_of_a_path_or_a_value(self):
+        led, pack, _ = self.ledger_and_pack()
+        digest = self.digest(pack)
+        for argv in (("verify", SK), ("verify", pack, "--trust-store", SK), ("check-notice", SK), ("vex", SK, "--format", "openvex"),
+                     ("verify-attestation", SK, "--trust-store", SK), ("sign", SK, "--signer-id", "me", "--key", SK),
+                     ("seal", "--ledger", led, "--product", "p", "--version", "1", "--pack-sha3", digest, "--renew", SK),
+                     ("sbom", "--ledger", led, "--product", "p", "--version", "1", "--from-cyclonedx", SK),
+                     ("notice", "--ledger", led, "--product", "p", "--version", "1", "--stage", "early_warning", "--fields", SK, "--drop", self.d),
+                     ("vuln", "--ledger", led, "--product", "p", "--version", "1", "--id", "CVE-2024-0001", "--aware", SK),
+                     ("sbom", "--ledger", led, "--product", "p", "--version", "1", "--installed", "pip", "--support-period-end", SK),
+                     ("verify", pack, self.SKP), ("verify", pack, AK), ("verify", self.SKP)):
+            r = self.cli(*argv)
+            self.assertNotEqual(r.returncode, 0, argv)
+            self.none(argv[0], r.stdout, r.stderr)
+            self.assertNotIn(self.SKP[1:].encode(), r.stdout + r.stderr, argv)
+        r = self.cli("verify", pack, "--trust-store=" + SK)            # --option=value: the value is hidden too
+        self.assertEqual(r.returncode, 2)
+        self.none("--trust-store=", r.stdout, r.stderr)
+        if HAVE:   # a value given as --option=value of an echoed option does not make the next argument echoed
+            key = self.seedfile()
+            r = self.cli("attest", "--signer-id=me", SK, "--ledger", led, "--key", key, "--out", os.path.join(self.d, "o"))
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.none("attest", r.stdout, r.stderr, inputs=(key,))
+
+    @unittest.skipUnless(HAVE, "the [sign] extra (cryptography) is not installed")   # seal signs with a long-term key
+    def test_what_is_echoed_by_contract_stays(self):
+        led, pack, _ = self.ledger_and_pack()
+        digest = self.digest(pack)
+        r = self.cli("seal", "--ledger", led, "--product", "p", "--version", "1", "--pack-sha3", digest)
+        self.assertIn(digest.encode(), r.stdout)                   # a digest typed and recorded is printed as typed
+        r = self.cli("verify-seal", "--ledger", led, "--pack-sha3=" + digest)
+        self.assertIn(digest.encode(), r.stdout)                   # given as --option=value too
+        long = self.file("e" * 45 + ".json", "{}")
+        r = self.cli("check-notice", long)
+        self.assertIn(os.path.basename(long).encode(), r.stdout)   # an existing path is named whole
+        r = self.cli("verify", os.path.join(self.d, "nofile-" + "x" * 40 + ".json"))
+        self.assertIn(b"nofile-" + b"x" * 40, r.stdout)            # a missing file in a folder that exists too
+
+    @unittest.skipUnless(HAVE, "the [sign] extra (cryptography) is not installed")
+    def test_an_argument_holding_the_seed_refuses_the_run(self):
+        key = self.seedfile()
+        led, pack, _ = self.ledger_and_pack(tip_key=key)
+        with open(led, "rb") as f:
+            before = f.read()
+        b64 = base64.b64encode(SEED).decode().rstrip("=")
+        for argv in (("sign", pack, "--key", key, "--signer-id", SEED.hex()), ("sign", pack, "--key", key, "--signer-id", "id-" + b64),
+                     ("sign", pack, "--key", key, "--signer-id=" + SEED.hex().upper()),
+                     ("sbom", "--ledger", led, "--product", SEED.hex(), "--version", "1", "--installed", "pip", "--tip-key", key),
+                     ("attest", pack, "--ledger", led, "--key", key, "--signer-id", SEED.hex(), "--out", os.path.join(self.d, "o"))):
+            r = self.cli(*argv)
+            self.assertEqual(r.returncode, 2, (argv, r.stderr))
+            self.none(argv[0], r.stdout, r.stderr, inputs=(key, led, pack))
+            self.assertFalse(os.path.exists(pack + ".sig.json") or os.path.exists(os.path.join(self.d, "o")), argv)
+        with open(led, "rb") as f:
+            self.assertEqual(f.read(), before)
+        r = self.cli("sign", pack, "--key", key, "--signer-id", "me")      # control: the same run with a name signs
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_an_argument_holding_an_aws_secret_refuses_before_the_network(self):
+        _, pack, _ = self.ledger_and_pack()
+        aws = {"AWS_KMS_ENDPOINT": DEAD, "AWS_ACCESS_KEY_ID": AK, "AWS_SECRET_ACCESS_KEY": SK, "AWS_SESSION_TOKEN": ST}
+        for sid in (SK, "x" + ST, AK):
+            r = self.cli("sign", pack, "--aws-kms-key-id", "k", "--aws-region", "eu-west-1", "--signer-id", sid, env=aws)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertNotIn(b"AWS KMS request failed", r.stderr)
+            self.none("kms signer-id", r.stdout, r.stderr)
+
+    def test_the_creds_file_is_closed(self):
+        ok = "AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\n" % (AK, SK)
+        good = self.file("ok.env", "# c\n\n" + ok + "AWS_SESSION_TOKEN='%s'\n" % ST)
+        self.assertEqual(kms.load_creds_file(good),
+                         {"AWS_ACCESS_KEY_ID": AK, "AWS_SECRET_ACCESS_KEY": SK, "AWS_SESSION_TOKEN": ST})
+        os.remove(good)
+        for body in (ok + "AWS_SECRET_ACESS_KEY=" + SK, ok + SK, "export " + ok, ok + "AWS_SECRET_ACCESS_KEY=" + SK,
+                     ok + "AWS_SESSION_TOKEN=", ok + "AWS_REGION=eu-west-1", (ok + SK[:5]).encode() + b"\xd7" + SK.encode()):
+            bad = self.file("bad.env", body)
+            with self.assertRaises(ValueError) as cm:
+                kms.load_creds_file(bad)
+            self.none("creds", str(cm.exception), repr(cm.exception), inputs=(bad,))
+            self.assertNotIn("0x", str(cm.exception))
+
+    @unittest.skipUnless(HAVE, "the [sign] extra (cryptography) is not installed")
+    def test_a_key_file_byte_is_not_named(self):
+        from omega_cra_evol.signing import load_key
+        for body in (b"\x01\x02" + SEED, SEED, SEED.hex().encode() + b"zz"):
+            with self.assertRaises(ValueError) as cm:
+                load_key(self.file("raw.key", body))
+            self.assertNotIn("0x", str(cm.exception))
+            self.assertNotIn("position", str(cm.exception))
+
+    def test_the_region_cannot_move_the_host(self):
+        class Reached(Exception):
+            pass
+
+        def reached(*a):
+            raise Reached()
+        for region in ("evil.example/", "x@evil.example/", "evil.example#", "eu-west-1/", "EU-WEST-1", "", None):
+            with mock.patch.object(kms.urllib.request, "build_opener", side_effect=reached):
+                with self.assertRaises(ValueError, msg=region):
+                    kms.KMSSigner("k", region, AK, SK, ST)
+        with mock.patch.object(kms.urllib.request, "build_opener", side_effect=reached):
+            for region in ("eu-west-1", "us-gov-west-1", "eusc-de-east-1", "ap-southeast-5"):
+                with self.assertRaises(Reached, msg=region):
+                    kms.KMSSigner("k", region, AK, SK, ST)
+
+    @unittest.skipUnless(HAVE, "the [sign] extra (cryptography) is not installed")
+    def test_a_seed_given_as_a_public_key_is_not_repeated(self):
+        from omega_cra_evol.art14_attest import sign_envelope
+        from omega_cra_evol.signing import load_key
+        key = self.seedfile()
+        led, pack, _ = self.ledger_and_pack(tip_key=key)
+        digest = self.digest(pack)
+        self.assertEqual(self.cli("seal", "--ledger", led, "--product", "p", "--version", "1", "--pack-sha3", digest,
+                                  "--tip-key", key).returncode, 0)
+        other = self.file("o.key", hashlib.sha256(b"other").hexdigest())
+        env = self.file("e.json", json.dumps(sign_envelope(b"{}", load_key(other), "me")))
+        ts = self.file("ts.json", json.dumps({"me": SEED.hex()}))
+        for argv in (("verify", pack, "--ledger", led, "--log-pubkey", SEED.hex()), ("verify", pack, "--trust-store", ts),
+                     ("verify-seal", "--ledger", led, "--sealer-pubkey", SEED.hex()), ("verify-attestation", env, "--trust-store", ts)):
+            r = self.cli(*argv)
+            self.assertNotEqual(r.returncode, 0, argv)
+            self.none(argv[0], r.stdout, r.stderr, inputs=(key, ts, other, led, pack, env))
+
+
 if __name__ == "__main__":
     unittest.main()

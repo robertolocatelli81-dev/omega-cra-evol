@@ -114,7 +114,11 @@ def load_key(path: str) -> Tuple[Any, str]:
     """(private key object, public key hex). Load ONCE and keep it — never re-read in a hot path."""
     Ed25519PrivateKey, _, ser = _ed()
     # a regular file within the bound: a FIFO or a device in place of the seed file is refused unread (18/11/2026)
-    sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(_read_secret_file(path).decode("utf-8").strip()))
+    try:   # a decoding error names one byte of the file and its position: not repeated (0.13.2)
+        seed = bytes.fromhex(_read_secret_file(path).decode("utf-8").strip())
+    except (UnicodeDecodeError, ValueError):
+        raise ValueError("the key file is not an Ed25519 seed (64 hex digits)") from None
+    sk = Ed25519PrivateKey.from_private_bytes(seed)
     return sk, sk.public_key().public_bytes(ser.Encoding.Raw, ser.PublicFormat.Raw).hex()
 
 

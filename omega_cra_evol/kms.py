@@ -23,6 +23,7 @@ import hmac
 import http.client
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
@@ -68,6 +69,8 @@ class KMSSigner:
         self._st = session_token or os.environ.get("AWS_SESSION_TOKEN")
         if not (self._ak and self._sk):
             raise RuntimeError("AWS KMS: credentials absent (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)")
+        if not (isinstance(region, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)+", region)):   # 0.13.2: "x/" or "x#"
+            raise ValueError("AWS KMS: the region must be an AWS region name (eu-west-1)")   # put the host in the URL
         self._host = f"kms.{region}.amazonaws.com"
         ep = endpoint or os.environ.get("AWS_KMS_ENDPOINT")
         if ep:
@@ -122,11 +125,22 @@ class KMSSigner:
 
 
 def load_creds_file(path: str) -> Dict[str, str]:
-    """KEY=VALUE lines (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN); never logged."""
+    """KEY=VALUE lines (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN); never logged. Closed
+    (0.13.2): a line that is not blank, a # comment or one of these names once with a value is refused by its number,
+    never repeated."""
     out: Dict[str, str] = {}
     from .ledger import _read_secret_file   # a regular file within the bound (a FIFO or a device is refused unread); never its path
-    for line in _read_secret_file(path).decode("utf-8").splitlines():
-        if "=" in line and not line.strip().startswith("#"):
-            k, v = line.strip().split("=", 1)
-            out[k.strip()] = v.strip().strip('"').strip("'")
+    try:
+        text = _read_secret_file(path).decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("the AWS credentials file is not UTF-8") from None
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        k, _, v = line.strip().partition("=")
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k not in _SECRET_ENV[:3] or k in out or not v:   # no "=": the whole line is the name
+            raise ValueError(f"the AWS credentials file, line {n}: not one of AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / "
+                             "AWS_SESSION_TOKEN, once, with a value")
+        out[k] = v
     return out

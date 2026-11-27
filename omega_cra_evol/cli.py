@@ -22,6 +22,7 @@ __all__ = [
 ]
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -50,11 +51,76 @@ class ReceiptNotWritten(Exception):
     """stdout refused the receipt (ENOSPC, EPIPE, EBADF, a closed or absent stdout): the exit code becomes 74"""
 
 
+# A secret typed in place of an argument is not repeated (0.13.2): a run of 40 or more base64 / hex / path characters of
+# an argument of this run (an AWS secret key has 40) that names no path, and an AWS access key id, are hidden in stderr
+# and in the outcome on stdout, except the values of the options the outcome repeats by contract (_ECHOED).
+_ARGV: List[str] = []
+_ECHOED_VALUES: List[str] = []
+_RUN = re.compile(r"[A-Za-z0-9+/=_.~:\\-]{40,}")
+_AWS_KEY_ID = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}")
+_ECHOED = ("--pack-sha3", "--log-pubkey", "--sealer-pubkey", "--token-b64", "--product", "--version", "--id", "--signer-id",
+           "--component", "--srp-reference", "--filed-at", "--filed-by", "--source-version", "--divergence-reason",
+           "--shorter-use-reason", "--case-reference", "--aws-kms-key-id", "--aws-region", "--installed")   # values to the next option
+
+
+def _set_argv(argv: List[str]) -> None:
+    _ARGV[:] = []            # the values of this run: an argument, or what follows "=" in --option=value
+    _ECHOED_VALUES[:] = []
+    opt = None
+    for t in map(str, argv):
+        o, eq, v = t.partition("=") if t.startswith("-") else ("", "", t)
+        if t.startswith("-"):
+            opt = o if o in _ECHOED and not eq else None
+            if eq and o in _ECHOED:
+                _ECHOED_VALUES.append(v)
+        elif opt:
+            _ECHOED_VALUES.append(t)   # every value up to the next option: nargs 2 (--case-reference) and * (--installed)
+        _ARGV.append(v if eq else t)
+
+
+def _names_a_path(s: str) -> bool:
+    """s exists, or has a folder part that exists and is not a root (a secret that starts with "/" names no path)"""
+    d = os.path.dirname(s)
+    return os.path.exists(s) or (os.path.dirname(d) != d and os.path.isdir(d))   # "": its dirname is itself too
+
+
+def _hide(text: str, keep: List[str] = ()) -> str:
+    runs = {m.group(0) for t in _ARGV if t not in keep for m in _RUN.finditer(t) if not _names_a_path(m.group(0))}
+    for r in sorted(runs, key=len, reverse=True):
+        text = text.replace(r, "<%d characters not repeated>" % len(r))
+    return _AWS_KEY_ID.sub("<an AWS access key id, not repeated>", text)
+
+
+def _refuse_if_argv_holds(*secrets: Any) -> None:
+    """A secret this run holds (the seed of --key / --tip-key, the AWS credentials) found in one of its arguments (a
+    --signer-id, a --product…: recorded as given) refuses the run before anything is written, exit 2, without naming it."""
+    forms = set()
+    for s in secrets:
+        if isinstance(s, bytes):
+            b = base64.b64encode(s).decode().rstrip("=")
+            forms |= {s.hex(), s.hex().upper(), b, b.replace("+", "-").replace("/", "_")}
+        elif s:
+            forms.add(s)
+    for t in _ARGV:   # the value of --key / --tip-key / --aws-creds-file too: a path that holds the secret names it
+        if any(f in t for f in forms):
+            _say("cra: error: an argument holds the secret of --key, --tip-key or the AWS credentials: refused, nothing written\n")
+            raise SystemExit(2)
+
+
+def _seed_of(key: Any) -> bytes:
+    from cryptography.hazmat.primitives import serialization as ser
+    return key[0].private_bytes(ser.Encoding.Raw, ser.PrivateFormat.Raw, ser.NoEncryption())
+
+
+def _aws_secrets(creds: Dict[str, str]) -> List[str]:
+    return [creds.get(n) or os.environ.get(n, "") for n in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")]
+
+
 def _p(obj: Any) -> None:
     """print the JSON outcome: every byte to stdout and flushed HERE, before the exit code is chosen, or
     ReceiptNotWritten (exit 74)"""
     try:
-        _write_all(json.dumps(obj, indent=1, ensure_ascii=False, sort_keys=True, default=str) + "\n")
+        _write_all(_hide(json.dumps(obj, indent=1, ensure_ascii=False, sort_keys=True, default=str), _ECHOED_VALUES) + "\n")
     except OSError as e:
         raise ReceiptNotWritten(str(e) or type(e).__name__) from None
 
@@ -148,7 +214,7 @@ def _say(text: str) -> bool:
     if err is None:   # started with fd 2 closed
         return False
     try:
-        err.write(text)
+        err.write(_hide(text))
         err.flush()
         return True
     except (OSError, ValueError):
@@ -217,9 +283,8 @@ class _Parser(argparse.ArgumentParser):
 
     def error(self, message: str) -> None:   # a run of 40 or more base64 / hex digits (an AWS secret key: 40) that names no path is not repeated (0.13.2)
         def keep(m: "re.Match[str]") -> str:
-            s = m.group(0)
-            return s if os.path.exists(s) or os.path.isdir(os.path.dirname(s) or "\0") else "<%d characters not repeated>" % len(s)
-        super().error(re.sub(r"[A-Za-z0-9+/=_.~:\\-]{40,}", keep, message))   # the characters of a path too: one is named whole
+            return m.group(0) if _names_a_path(m.group(0)) else "<%d characters not repeated>" % len(m.group(0))
+        super().error(_RUN.sub(keep, message))   # the characters of a path too: one is named whole
 
     def _print_message(self, message, file=None):   # argparse's only writer: error() and exit() print through it
         if not message:
@@ -237,6 +302,8 @@ def _load_json(path: str) -> Any:
 
 def _locker(a) -> EvidenceLocker:
     key = load_key(a.tip_key) if getattr(a, "tip_key", None) else None
+    if key is not None:
+        _refuse_if_argv_holds(_seed_of(key))
     return EvidenceLocker(a.ledger, a.product, a.version, tip_key=key, support_period_end=getattr(a, "support_period_end", None))
 
 
@@ -334,6 +401,7 @@ def _verify_seal(a: argparse.Namespace, p: argparse.ArgumentParser) -> int:
 
 
 def main(argv: List[str] = None) -> int:
+    _set_argv(sys.argv[1:] if argv is None else argv)
     try:
         return _main(argv)
     except ReceiptNotWritten as e:
@@ -626,10 +694,12 @@ def _main(argv: List[str] = None) -> int:
             if not a.aws_region:
                 p.error("attest: --aws-region is required with --aws-kms-key-id")
             creds = load_creds_file(a.aws_creds_file) if a.aws_creds_file else {}
+            _refuse_if_argv_holds(*_aws_secrets(creds))
             key = KMSSigner(a.aws_kms_key_id, a.aws_region, creds.get("AWS_ACCESS_KEY_ID"), creds.get("AWS_SECRET_ACCESS_KEY"),
                             creds.get("AWS_SESSION_TOKEN")).as_key()
         elif a.key:
             key = load_key(a.key)
+            _refuse_if_argv_holds(_seed_of(key))
         else:
             p.error("attest: give --key or --aws-kms-key-id")
         try:
@@ -662,11 +732,14 @@ def _main(argv: List[str] = None) -> int:
             if not a.aws_region:
                 p.error("sign: --aws-region is required with --aws-kms-key-id")
             creds = load_creds_file(a.aws_creds_file) if a.aws_creds_file else {}
+            _refuse_if_argv_holds(*_aws_secrets(creds))
             signer = KMSSigner(a.aws_kms_key_id, a.aws_region, creds.get("AWS_ACCESS_KEY_ID"), creds.get("AWS_SECRET_ACCESS_KEY"), creds.get("AWS_SESSION_TOKEN"))
             r = sign_pack(a.pack, signer.as_key(), a.signer_id); r["public_key_hex"] = signer.public_key_hex; r["backend"] = "aws-kms"; _p(r); return 0
         if not a.key:
             p.error("sign: give --key or --aws-kms-key-id")
-        _p(sign_pack(a.pack, load_key(a.key), a.signer_id)); return 0
+        key = load_key(a.key)
+        _refuse_if_argv_holds(_seed_of(key))
+        _p(sign_pack(a.pack, key, a.signer_id)); return 0
     if a.cmd == "seal":
         lk = _locker(a)
         prev = _load_json(a.renew) if a.renew else None

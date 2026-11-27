@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.13.2 — unreleased — a secret that comes in never goes out
+## 0.13.2 — 2026-11-27 — a secret that comes in never goes out
 
 The class found on 25-26/11/2026 in ap2-evidence-pack 1.11.2 and cryptovalid-opencore 0.29.1 (same author), searched
 here on 27/11/2026. The inputs that take a secret, counted with `grep` on the sources: the seed files of `--key` (`sign`,
@@ -9,7 +9,7 @@ variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and 
 `KMSSigner`, the names of a `--trust-store` and the private key of a long-term `Signer`. `tests/test_secrets.py` puts a
 canary into each and searches standard output and error, every file written, the exception, and the environment and
 argv of the one child process (openssl), raw and in hex, HEX, decimal, base64 and base64url at the three offsets. On
-0.13.1 (and on 0.12.0) 9 of its 19 tests fail; the outputs where the canary was found:
+0.13.1 15 of its 27 tests fail (16 on 0.12.0); the outputs where the canary was found:
 
 - **A KMS endpoint with user information is refused before the network**, without repeating the URL. 0.13.1 accepted
   `https://u:PASSWORD@host/` in `AWS_KMS_ENDPOINT` (or `endpoint=`): http.client read `PASSWORD@host` as a port, and the
@@ -20,18 +20,40 @@ argv of the one child process (openssl), raw and in hex, HEX, decimal, base64 an
 - **A key file that cannot be read is not named**: a seed given in place of the path of `--key` or `--tip-key`, or a
   secret in place of `--aws-creds-file`, was printed in the `FileNotFoundError` of the traceback. The error now says
   `the key file cannot be read (FileNotFoundError)`, with its errno.
-- **A usage error does not repeat a run of 40 or more base64 / hex digits** (an AWS secret key has 40) unless it is a
-  path that exists or whose folder exists: `cra verify p.json SECRET`, an extra argument or an invalid choice printed it.
+- **No message repeats a secret typed in place of an argument.** A run of 40 or more base64 / hex / path characters of
+  an argument (an AWS secret key has 40) is not repeated on standard error nor in the outcome on standard output unless
+  it names a path: one that exists, or one whose folder part exists and is not a root (`/` + 39 characters is not
+  repeated; a name with no folder part that does not exist is not repeated either). An AWS access key id (`AKIA` /
+  `ASIA` + 16) is never repeated there. 0.13.1 printed it in usage errors (`cra verify p.json SECRET`, an extra
+  argument, an invalid choice), in the errors of a missing file given as the pack, envelope, drop file, VEX, trust
+  store, `--renew`, `--from-cyclonedx`, `--fields`, and in the errors of an invalid instant (`--aware`,
+  `--support-period-end`). The values the outcome repeats by contract stay as given (`--pack-sha3`, `--log-pubkey`,
+  `--sealer-pubkey`, `--token-b64`, `--product`, `--version`, `--id`, `--signer-id`, `--component`, `--srp-reference`,
+  `--filed-at`, `--filed-by`, `--source-version`, `--divergence-reason`, `--shorter-use-reason`, `--case-reference`,
+  `--aws-kms-key-id`, `--aws-region`, `--installed`).
+- **An argument that holds the secret of the run refuses the run** (exit 2, nothing written, the secret not named): the
+  seed of `--key` or `--tip-key` (hex, HEX, base64, base64url) or an AWS credential, inside a `--signer-id`, a
+  `--product` or any other argument. 0.13.1 wrote a seed given as `--signer-id` into the sidecar.
+- **The AWS credentials file is closed**: a line that is not blank, a `#` comment, or one of `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` once with a value is refused by its line number, never repeated
+  (`export NAME=…` and `AWS_REGION=…` included: refused, where 0.13.1 ignored them in silence); a file that is not
+  UTF-8 is refused without naming the byte.
+- **A key file that is not a seed is refused without naming one of its bytes** (0.13.1: `can't decode byte 0x.. in
+  position N`).
+- **`--aws-region` must be a region name** (`[a-z0-9]+(-[a-z0-9]+)+`): `evil.example/` moved the host of the signed
+  request (`kms.evil.example`), with its session token.
 - **A name of more than 32 characters is named by its length** (`of 43 characters`) in the reasons of
   `verify-attestation` about a trust store key, and in the duplicate-key error of the strict JSON reader (ledger lines,
   trust stores, notice fields, envelopes); 0.13.1 repeated up to 80 characters of a trust store name, or the whole name
   of a duplicate key, on stdout or stderr.
 
-Found clean on 0.13.1: the seed in `keygen`'s output, in the sidecar, tip, ledger and seal; a malformed seed file's
-content; the private key of an ephemeral or given `Signer` in a seal; the credentials of a creds file or of the
-environment in the output of a KMS request that fails. Not covered: a key given as the value of a public key
-(`--log-pubkey`, `--sealer-pubkey`, a trust store value: 64 hex digits, the same form), a key given as `--signer-id`
-(written into the sidecar by contract), the access key id (20 characters) given in place of an argument.
+Found clean on 0.13.1: the seed in `keygen`'s output, in the sidecar, tip, ledger and seal; the content of a seed file
+that is UTF-8 but not a seed; the private key of an ephemeral or given `Signer` in a seal; the credentials of a creds file or of the
+environment in the output of a KMS request that fails.
+A private key given as the value of a public key (`--log-pubkey`, `--sealer-pubkey`, a trust store value) is not
+repeated by `verify`, `verify-seal` and `verify-attestation` (measured on 0.13.1 and here, `tests/test_secrets.py`).
+Not covered: a secret this run does not hold, typed as one of the values the outcome repeats by contract (above), is
+recorded and printed as typed; a run of 39 characters or fewer is repeated.
 
 ## 0.13.1 — 2026-11-20 — text of a third party is read in time proportional to its length; the ledger's state file is written like every other file
 
