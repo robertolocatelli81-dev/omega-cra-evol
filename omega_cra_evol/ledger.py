@@ -40,7 +40,8 @@ def _now_ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_WIN_LOCK_AT = 1 << 62   # Windows: one byte far past any real end is the mutex every writer locks (a range past EOF may be locked)
+_WIN_LOCK_AT = 1 << 40   # Windows: one byte at 1 TiB, past any real ledger, is the mutex every writer locks (a range past
+# EOF may be locked there; 1 << 62 cannot be reached by a seek on some filesystems, ext4 among them)
 
 
 def _lock(f) -> bool:
