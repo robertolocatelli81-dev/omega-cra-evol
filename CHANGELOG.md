@@ -8,6 +8,15 @@ failed on Windows. It now takes Windows' equivalent, `msvcrt.locking` on one byt
 handle closes. Found by the secret-leaks job on windows-latest (Python 3.9 to 3.14), the first job of this repository
 to run the commands there; `tests/test_ledger_windows_lock_20261127.py` plays msvcrt on every system (fails on 0.13.1).
 
+**Windows: a full non-blocking stdout is waited for.** Until 0.13.1 the receipt writer waited with `select`, which on
+Windows takes sockets only: a non-blocking pipe that was full when the receipt came was exit 74, `receipt not written:
+stdout is non-blocking and cannot be waited for: [WinError 10093]` (measured on windows-latest, Python 3.13, CI run
+45968134390). Windows now sleeps 10 ms and writes again, as a blocking write would wait. Found when the CI started to
+run the whole suite on macOS and Windows (Python 3.9 to 3.14, with and without the extras): `NonBlockingStdout` and
+`InProcess.test_unflushed_caller_text_on_a_full_nonblocking_pipe` in `tests/test_receipt_design_20261013.py` fail on
+0.13.1 there (Python 3.12 and later: before 3.12 `os.set_blocking` cannot make a Windows pipe non-blocking, and the
+two tests say so as their skip reason).
+
 The class found on 25-26/11/2026 in ap2-evidence-pack 1.11.2 and cryptovalid-opencore 0.29.1 (same author), searched
 here on 27/11/2026. The inputs that take a secret, counted with `grep` on the sources: the seed files of `--key` (`sign`,
 `attest`) and `--tip-key` (every command with a ledger, `seal`), the seed `keygen` writes, `--aws-creds-file`, the

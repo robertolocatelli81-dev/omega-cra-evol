@@ -8,7 +8,7 @@ not be written whole to stdout (full disk, closed pipe, closed or read-only stdo
 PYTHONUNBUFFERED), or what the subcommand promises could not be written: its ledger line, the copy of an ingested
 SBOM document, a file (`pack --out`, the `sign` sidecar, the `notice` drop file, the `keygen` seed, the ledger's
 signed tip) — whatever the outcome was, with a `receipt not written: <reason>` line on stderr. A stdout that is
-non-blocking and full is waited for, as a blocking one (measured on Linux; not on macOS or Windows). Usage errors exit 2 and
+non-blocking and full is waited for, as a blocking one (measured on Linux, macOS and Windows). Usage errors exit 2 and
 refusals keep their code (`keygen` on an existing seed: 1, one line, no traceback) even when stderr cannot take
 their line. What a subcommand records in the ledger is recorded before its outcome is printed. Nothing is ever sent
 anywhere except the OSV/KEV/EUVD read-only queries (`feeds`, and `vuln --source cisa_kev|enisa_euvd` unless
@@ -127,7 +127,7 @@ def _p(obj: Any) -> None:
 
 def _text_layer_bytes(out: Any, buf: Any, text: str) -> bytes:
     """The bytes Python's own stdout text layer writes for `text` as the first thing written: its encoding and error
-    handler, "\\n" as os.linesep where the platform translates it (not Linux; not measured here), and a byte order mark
+    handler, "\\n" as os.linesep where the platform translates it (Windows: measured by tests/test_receipt_design_20261013.py), and a byte order mark
     only where that layer puts one — utf-16 / utf-32 only on a stdout seekable at offset 0 (a file), utf-8-sig on a
     pipe too, none on a seekable stdout past offset 0 (str.encode would put one on a pipe too)."""
     import codecs
@@ -149,12 +149,20 @@ def _wait_writable(buf: Any) -> None:
     """stdout is non-blocking and full: wait until it can take more, as a blocking write would (the reader is slow, not
     gone; one that goes away makes the next write EPIPE). `select` sleeps in the kernel and Python retries it after a
     signal (PEP 475). The descriptor is asked for only here: a byte stream with no descriptor (an io.BytesIO under a
-    TextIOWrapper, as pytest's capsys) never blocks. POSIX only: on Windows `select` waits on sockets only, so a full
-    non-blocking pipe there would be reported as 74 (not measured)."""
+    TextIOWrapper, as pytest's capsys) never blocks. Windows: `select` waits on sockets only (until 0.13.1 a full
+    non-blocking pipe there was reported as 74); its equivalent is a short sleep, after which the write is tried again."""
+    try:
+        fd = buf.fileno()
+    except (OSError, ValueError) as e:   # no descriptor
+        raise OSError(f"stdout is non-blocking and cannot be waited for: {e}")
+    if os.name == "nt":
+        import time
+        time.sleep(0.01)
+        return
     import select
     try:
-        select.select([], [buf.fileno()], [])
-    except (OSError, ValueError) as e:   # no descriptor, or one select cannot wait on
+        select.select([], [fd], [])
+    except (OSError, ValueError) as e:   # a descriptor select cannot wait on
         raise OSError(f"stdout is non-blocking and cannot be waited for: {e}")
 
 
