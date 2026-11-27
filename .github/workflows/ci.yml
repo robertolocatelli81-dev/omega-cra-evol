@@ -3,6 +3,10 @@ on: [push, pull_request]
 # Read-only token for every job (OpenSSF Scorecard Token-Permissions; no job writes to the repository)
 permissions:
   contents: read
+# a new push to a ci-prova-* branch cancels the superseded run of that branch (the account's runners are shared)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/ci-prova-') }}
 jobs:
   test:
     # the WHOLE suite on every system x every declared Python x every optional-dependency set (Roberto, 24/11/2026):
