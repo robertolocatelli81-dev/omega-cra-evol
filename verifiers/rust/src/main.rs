@@ -578,8 +578,8 @@ fn write_all_stdout(mut buf: &[u8]) -> std::io::Result<()> {
 }
 
 /// Windows: the same loop. A full PIPE_NOWAIT pipe takes 0 bytes and reports success: on a pipe that is waited for by
-/// sleeping 10 ms and writing again (the equivalent of poll, which takes no pipe there); 0 bytes on anything else is an
-/// error. Before 0.13.2 `write_all` turned it into "failed to write whole buffer", exit 74 (CI run 46013986663).
+/// sleeping 10 ms and writing again (the equivalent of poll, which takes no pipe there); a console or a file is written
+/// by std's Stdout, as before. Before 0.13.2 `write_all` turned it into "failed to write whole buffer", exit 74 (CI run 46013986663).
 #[cfg(windows)]
 fn write_all_stdout(mut buf: &[u8]) -> std::io::Result<()> {
     use std::io::{ErrorKind, Write};
@@ -588,6 +588,11 @@ fn write_all_stdout(mut buf: &[u8]) -> std::io::Result<()> {
     const FILE_TYPE_PIPE: u32 = 3;
     let h = std::io::stdout().as_raw_handle();
     let pipe = unsafe { GetFileType(h as *mut std::ffi::c_void) } == FILE_TYPE_PIPE;
+    if !pipe {   // a console or a file: std's Stdout as before 0.13.2 (on a console it writes UTF-16 with WriteConsoleW;
+        // WriteFile would hand the UTF-8 bytes to the console's code page)
+        let mut so = std::io::stdout().lock();
+        return so.write_all(buf).and_then(|_| so.flush());
+    }
     let mut out = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_handle(h) });
     while !buf.is_empty() {
         match out.write(buf) {

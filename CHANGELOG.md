@@ -27,7 +27,12 @@ author). The tests now make the pipe non-blocking with `SetNamedPipeHandleState`
 `cra verify` of a path with `✓` exited 74, `receipt not written: 'charmap' codec can't encode character '\u2713'`, for a
 user who set nothing (CI run 45979434746, Windows, Python 3.9; `DefaultEncoding` in
 `tests/test_receipt_design_20261013.py`). The receipt is now UTF-8 unless `PYTHONIOENCODING` names an encoding, as the
-JS, Go and Rust verifiers write it.
+JS, Go and Rust verifiers write it. This holds on every system: with a UTF-8 locale, and with C or POSIX (which Python
+turns into UTF-8), the bytes are those of 0.13.1 (measured on Linux, Python 3.9 and 3.13). Under a locale that is not
+UTF-8 the receipt changes: 0.13.1 wrote it in the locale's encoding and exited 74 when it held a character outside it
+(`cra verify` under `en_US.ISO-8859-1`: `'latin-1' codec can't encode character '\u2026'`); 0.13.2 writes UTF-8, and a
+non-ASCII path the receipt repeats is the locale's reading of its bytes written in UTF-8 (`dé` arrives as `dÃ©`), where
+0.13.1 gave back its bytes.
 
 **The four verifiers on Windows agree** (the differential oracle ran there for the first time, CI run 45979434746; 17
 divergences, all now cases of `verifiers/differential.py` on the three systems):
@@ -39,7 +44,9 @@ divergences, all now cases of `verifiers/differential.py` on the three systems):
   (`pack-json` FAIL) before the OS sees it.
 - a full non-blocking stdout on Windows (PIPE_NOWAIT, which takes 0 bytes and reports success): the Rust verifier
   exited 74 ("failed to write whole buffer") and the Go verifier spun at one CPU second per second until the reader
-  came (CI run 46013986663, `NonBlockingStdout.test_verifiers`). Both now wait 10 ms between tries on a pipe there.
+  came (CI run 46013986663, `NonBlockingStdout.test_verifiers`). Both now wait 10 ms between tries on a pipe there; a
+  console or a file is written by the language's own stdout as before (on a console it writes UTF-16: bytes written
+  straight to it would be read in the console's code page).
 - Node reports a name too long for the file system as ENOENT on Windows: a 263-character sidecar name read as "not
   signed" there while the three others refuse it. A last component above 255 UTF-16 units is never "absent" now.
 

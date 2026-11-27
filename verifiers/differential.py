@@ -510,6 +510,10 @@ def cases(base):
         build(d); return {"pack": os.path.join(d, "p.json") + suffix}
     case("pack_path_trailing_slash", lambda d: trailing(d, "/"))
     case("pack_path_trailing_slash_dot", lambda d: trailing(d, "/."))
+    # Windows' own separator (0.13.2, final review): refused there by the four before the OS sees it; elsewhere a name
+    # character, so a pack that is absent - pack-json FAIL in the four on every system
+    case("pack_path_trailing_backslash", lambda d: trailing(d, "\\"))
+    case("pack_path_trailing_backslash_dot", lambda d: trailing(d, "\\."))
     def rechained_stale_record_sha3(d):   # record content changed, record_sha3 left stale, the WHOLE chain re-linked coherently: only the binding layer sees it
         from omega_cra_evol.ledger import entry_hash
         build(d); p = os.path.join(d, "l.jsonl"); es = [json.loads(l) for l in open(p).read().splitlines()]
