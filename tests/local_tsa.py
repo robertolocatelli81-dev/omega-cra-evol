@@ -16,7 +16,9 @@ _CNF = ("[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {d}/serial\ncrypto_device =
 
 
 def _run(*a):
-    subprocess.run(list(a), check=True, capture_output=True, timeout=60)
+    r = subprocess.run(list(a), capture_output=True, timeout=60)
+    if r.returncode:   # openssl's own words in the failure, not only its exit code
+        raise RuntimeError(f"{list(a)} exit {r.returncode}: {r.stderr.decode('utf-8', 'replace')[-2000:]}")
 
 
 class LocalTsa:
@@ -25,7 +27,7 @@ class LocalTsa:
         os.makedirs(td, exist_ok=True)
         j = self.j
         with open(j("tsa.cnf"), "w") as f:
-            f.write(_CNF.format(d=td))
+            f.write(_CNF.format(d=td.replace(os.sep, "/")))   # openssl reads a backslash in its config as an escape (Windows paths)
         with open(j("serial"), "w") as f:
             f.write("01\n")
         _run("openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout",

@@ -8,13 +8,10 @@ failed; the Go/JS verifiers reported their own internal errors as a plain FAIL. 
 verifiers are held to the same rules by verifiers/differential.py (cases pack_fifo … internal_error_injected_on_intact_pack)."""
 import json, os, shutil, subprocess, sys, tempfile, unittest
 
-try:
-    import resource
-except ImportError:   # non-POSIX
-    resource = None
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _streams as S  # noqa: E402
 from omega_cra_evol.locker import EvidenceLocker
 from omega_cra_evol.verify_pack import verify_pack
 from omega_cra_evol.vuln import VulnerabilityRecord
@@ -32,21 +29,31 @@ MEM = 1500 << 20        # RLIMIT_DATA of the child: /dev/zero read whole must no
 KEY = "ab" * 32
 
 
-def _limit():
-    resource.setrlimit(resource.RLIMIT_DATA, (MEM, MEM))
+def child(argv, env=None):
+    """(exit or "BLOCKED", stdout, stderr) of argv in a child with a timeout and a memory bound: RLIMIT_DATA (Linux),
+    a Job Object (Windows); macOS has none (S.NO_MEMORY_BOUND)"""
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=ROOT,
+                         env={**os.environ, "PYTHONPATH": ROOT, **(env or {})}, preexec_fn=S.memory_bound_preexec(MEM))
+    if S.WIN:
+        S.bound_memory(p, MEM)
+    try:
+        out, err = p.communicate(timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
+        return "BLOCKED", "", ""
+    return p.returncode, out, err
 
 
 def cli(*args, env=None):
     """(exit, parsed JSON or None, stderr) of `cra verify`, in a child with a timeout and a memory bound."""
-    try:
-        r = subprocess.run([sys.executable, "-m", "omega_cra_evol.cli", "verify", *args], capture_output=True, text=True, timeout=TIMEOUT,
-                           cwd=ROOT, env={**os.environ, "PYTHONPATH": ROOT, **(env or {})}, preexec_fn=_limit if resource else None)
-    except subprocess.TimeoutExpired:
+    code, out, err = child([sys.executable, "-m", "omega_cra_evol.cli", "verify", *args], env)
+    if code == "BLOCKED":
         return "BLOCKED", None, ""
     try:
-        return r.returncode, json.loads(r.stdout), r.stderr
+        return code, json.loads(out), err
     except ValueError:
-        return r.returncode, None, r.stderr
+        return code, None, err
 
 
 def rj(p):
@@ -63,7 +70,24 @@ def fail_detail(j, layer):
     return next((l["detail"] for l in j["layers"] if l["layer"] == layer and l["status"] == "FAIL"), None)
 
 
-@unittest.skipIf(not hasattr(os, "mkfifo"), "needs POSIX FIFOs and symlinks")
+NO_FIFO = "Windows has no FIFO in a folder (its named pipes live under \\\\.\\pipe\\ only): a FIFO at a file's own path has no equivalent there"
+DEVICE = "\\\\.\\NUL" if S.WIN else "/dev/zero"   # a symlink to a device: the null device on Windows (no /dev/zero there)
+
+
+class MemoryBound(unittest.TestCase):
+    """positive control of the bound `child` puts on the verifier's process"""
+
+    def test_a_child_above_the_bound_is_stopped(self):
+        code = "import sys; b = bytearray(%d); sys.exit(0)" % (MEM * 2)
+        if sys.platform == "darwin":   # the measure behind S.NO_MEMORY_BOUND: if this starts to pass, use the limit there
+            r = subprocess.run([sys.executable, "-c", "import resource; resource.setrlimit(resource.RLIMIT_DATA, (%d, %d))" % (MEM, MEM)],
+                               capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(r.returncode, 0, "RLIMIT_DATA is accepted on this macOS: bound the child with it")
+            self.skipTest(S.NO_MEMORY_BOUND)
+        self.assertNotEqual(child([sys.executable, "-c", code])[0], 0)
+        self.assertEqual(child([sys.executable, "-c", "b = bytearray(1 << 20)"])[0], 0)
+
+
 class TestFileObjects(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
@@ -76,9 +100,17 @@ class TestFileObjects(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
 
     def swap(self, path, kind):
+        if kind == "fifo" and S.WIN:
+            return False
         if os.path.lexists(path):
             os.remove(path)
-        os.mkfifo(path) if kind == "fifo" else os.symlink("/dev/zero", path)
+        os.mkfifo(path) if kind == "fifo" else os.symlink(DEVICE, path)
+        return True
+
+    @unittest.skipIf(S.WIN, NO_FIFO)
+    def test_fifo_kind(self):
+        """the FIFO case of the tests below runs here (POSIX); on Windows they run the device case only"""
+        self.assertTrue(self.swap(os.path.join(self.d, "f"), "fifo"))
 
     def assert_fail(self, layer, why, *args):
         code, j, err = cli(self.pack, *args)
@@ -89,30 +121,35 @@ class TestFileObjects(unittest.TestCase):
 
     def test_pack_fifo_and_devzero(self):
         for kind in ("fifo", "devzero"):
-            self.swap(self.pack, kind)
+            if not self.swap(self.pack, kind):   # Windows: NO_FIFO (see test_fifo_kind)
+                continue
             self.assert_fail("pack-json", "not a regular file")
 
     def test_sidecar_fifo_and_devzero(self):
         for kind in ("fifo", "devzero"):
-            self.swap(self.pack + ".sig.json", kind)
+            if not self.swap(self.pack + ".sig.json", kind):   # Windows: NO_FIFO (see test_fifo_kind)
+                continue
             self.assert_fail("producer-signature", "not a regular file")
 
     def test_ledger_fifo_and_devzero_explicit_and_implicit(self):
         led = os.path.join(self.d, "l.jsonl")
         for kind in ("fifo", "devzero"):
-            self.swap(led, kind)
+            if not self.swap(led, kind):   # Windows: NO_FIFO (see test_fifo_kind)
+                continue
             self.assert_fail("ledger-chain", "not a regular file", "--ledger", led)
             self.assert_fail("ledger-chain", "not a regular file")   # present but not a file: never a silent "ledger not next to the pack"
 
     def test_tip_fifo_and_devzero_with_log_key(self):
         for kind in ("fifo", "devzero"):
-            self.swap(os.path.join(self.d, "l.jsonl.tip.json"), kind)
+            if not self.swap(os.path.join(self.d, "l.jsonl.tip.json"), kind):   # Windows: NO_FIFO (see test_fifo_kind)
+                continue
             self.assert_fail("signed-tip", "not a regular file", "--log-pubkey", KEY)
 
     def test_trust_store_fifo_and_devzero_are_unreadable(self):
         t = os.path.join(self.d, "trust.json")
         for kind in ("fifo", "devzero"):
-            self.swap(t, kind)
+            if not self.swap(t, kind):   # Windows: NO_FIFO (see test_fifo_kind)
+                continue
             code, j, err = cli(self.pack, "--trust-store", t)
             self.assertEqual(code, 2)
             self.assertIsNone(j)

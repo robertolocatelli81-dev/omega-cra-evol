@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_record_links_20261118 import Base, notice  # noqa: E402
 from test_verify_seal_20261118 import HAVE_CRYPTO, HAVE_OPENSSL, LocalTsa, VerifySeal, cra  # noqa: E402
 
+import _streams as ST  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -29,12 +30,10 @@ def run(d, *args):
 
 
 class NotRegularDocument(Base):
-    @unittest.skipUnless(hasattr(os, "mkfifo") and os.path.exists("/dev/zero"), "needs POSIX FIFOs and /dev/zero")
     def test_fifo_and_device_are_refused_unread(self):
-        fifo = os.path.join(self.td, "fifo")
-        os.mkfifo(fifo)
+        fifo = ST.fifo(self, self.td)                # Windows: a named pipe, and the NUL device
         base = ["--ledger", self.led, "--product", "p", "--version", "1"]
-        for src in (fifo, "/dev/zero"):
+        for src in (fifo, ST.DEVICE):
             for args in (["sbom", *base, "--from-cyclonedx", src], ["sbom", *base, "--from-spdx", src],
                          ["vex", src, "--format", "openvex"],
                          ["vuln", *base, "--id", "CVE-2026-1", "--aware", "2026-11-18T09:00:00Z", "--vex", src,
@@ -160,11 +159,8 @@ class EveryReaderIsARegularFileReader(Base):
 
     def setUp(self):
         super().setUp()
-        self.fifo = os.path.join(self.td, "fifo")
-        if hasattr(os, "mkfifo"):
-            os.mkfifo(self.fifo)
+        self.fifo = ST.fifo(self, self.td)          # Windows: a named pipe
 
-    @unittest.skipUnless(hasattr(os, "mkfifo") and os.path.exists("/dev/zero"), "needs POSIX FIFOs and /dev/zero")
     def test_api_readers(self):
         import threading
         from omega_cra_evol import kms, sbom as S, signing
@@ -177,7 +173,7 @@ class EveryReaderIsARegularFileReader(Base):
         if HAVE_CRYPTO:
             calls["signing.load_key"] = lambda p: signing.load_key(p)
         for name, fn in calls.items():
-            for src in (self.fifo, "/dev/zero"):
+            for src in (self.fifo, ST.DEVICE):
                 got = []
                 def go():
                     try:
@@ -189,6 +185,8 @@ class EveryReaderIsARegularFileReader(Base):
                 self.assertFalse(t.is_alive(), f"{name} blocks on {src}")
                 self.assertNotEqual(got, ["returned"], (name, src))
         # the append-state cache next to a ledger: a FIFO in its place is "no cache", the append goes on
+        if ST.WIN:
+            self.skipTest("the readers above ran; the append-state part: " + ST.NO_FIFO)
         lg = Ledger(self.led)
         lg.append({"k": 1})
         state = self.led + ".append-state.json"
@@ -199,7 +197,7 @@ class EveryReaderIsARegularFileReader(Base):
         t.start(); t.join(10)
         self.assertFalse(t.is_alive(), "Ledger.append blocks on a FIFO in place of its state cache")
 
-    @unittest.skipUnless(hasattr(os, "mkfifo"), "needs POSIX FIFOs")
+    @unittest.skipIf(ST.WIN, ST.NO_FIFO)
     def test_a_fifo_in_place_of_a_stored_document(self):
         """the stores compare an existing file with the new bytes: a FIFO there is "different bytes", not a wait"""
         import hashlib
@@ -230,7 +228,6 @@ class EveryReaderIsARegularFileReader(Base):
             self.assertIn(want, got[0], name)
         self.assertEqual(self.lines(), 0)
 
-    @unittest.skipUnless(hasattr(os, "mkfifo"), "needs POSIX FIFOs")
     def test_record_sbom_source_path_and_the_cli(self):
         import threading
         from omega_cra_evol import sbom as S

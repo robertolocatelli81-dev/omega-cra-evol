@@ -212,6 +212,8 @@ exit 0
 
 
 @unittest.skipUnless(shutil.which("bash"), "the action's steps are bash")
+@unittest.skipIf(os.name == "nt", "action.yml runs on Linux runners with docker only (it says so): a Windows runner's docker "
+                                  "runs Windows containers, so the action has no Windows use to test")
 class TestActionSteps(unittest.TestCase):
     """the two composite steps of action.yml, run with bash against docker/gh stubs"""
     IMG = "ghcr.io/robertolocatelli81-dev/omega-cra-evol"

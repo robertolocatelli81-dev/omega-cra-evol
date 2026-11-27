@@ -21,7 +21,6 @@ Every case below runs as a real process unless it says "in process"."""
 import io
 import json
 import os
-import shlex
 import shutil
 import stat
 import subprocess
@@ -36,7 +35,10 @@ EXAMPLE = os.path.join(ROOT, "examples", "self_evidence")
 SYFT = os.path.join(ROOT, "tests", "fixtures", "real_tools", "syft-1.52.0_cyclonedx-1.7.json")
 PY = [sys.executable, "-B", "-m", "omega_cra_evol.cli"]
 EX_IOERR = 74
-CAN_RUN = os.name == "posix" and os.path.exists("/dev/full") and shutil.which("bash") is not None and os.path.exists("/proc/self/stat")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _streams as S  # noqa: E402
+NO_FIFO = "Windows has no FIFO in a folder (its named pipes live under \\\\.\\pipe\\ only): a FIFO at a file's own path has no equivalent there"
+FSIZE_MODES = ("fsize_cut",) if S.HAVE_FSIZE else ()   # Windows: S.NO_FSIZE
 HAVE_SIGN = True
 try:
     import cryptography  # noqa: F401
@@ -53,50 +55,15 @@ def _env(extra=None):
 
 
 def run(argv, mode, env=None, cwd=ROOT):
-    """(exit code, stdout bytes or None, stderr text) of argv with stdout in `mode`"""
+    """(exit code, stdout bytes or None, stderr text) of argv with stdout in `mode` (tests/_streams.py: each state made
+    with the system's own means)"""
     e = _env(env)
-    cmd = " ".join(shlex.quote(a) for a in argv)
-    with tempfile.TemporaryDirectory() as td:
-        o = os.path.join(td, "out")
-        if mode == "file":
-            with open(o, "wb") as f:
-                p = subprocess.run(argv, stdout=f, stderr=subprocess.PIPE, env=e, cwd=cwd, timeout=120)
-            with open(o, "rb") as f:
-                return p.returncode, f.read(), p.stderr.decode("utf-8", "replace")
-        if mode == "fsize_cut":   # 1 000 bytes already there, limit 1 024: 24 bytes taken, then EFBIG
-            with open(o, "wb") as f:
-                f.write(b"x" * 1000)
-            p = subprocess.run(["bash", "-c", f"ulimit -f 1; exec {cmd} >> {shlex.quote(o)}"], stderr=subprocess.PIPE, env=e, cwd=cwd, timeout=120)
-            with open(o, "rb") as f:
-                return p.returncode, f.read()[1000:], p.stderr.decode("utf-8", "replace")
-        if mode == "pipe_closed":
-            r, w = os.pipe()
-            os.close(r)
-            try:
-                p = subprocess.run(argv, stdout=w, stderr=subprocess.PIPE, env=e, cwd=cwd, timeout=120)
-            finally:
-                os.close(w)
-            return p.returncode, None, p.stderr.decode("utf-8", "replace")
-        if mode == "slow":
-            p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=e, cwd=cwd)
-            time.sleep(0.5)
-            out, err = p.communicate(timeout=120)
-            return p.returncode, out, err.decode("utf-8", "replace")
-        if mode == "readonly":   # fd 1 open, but read-only: every write is EBADF
-            open(o, "wb").close()
-            p = subprocess.run(["bash", "-c", f"exec {cmd} 1<{shlex.quote(o)}"], stderr=subprocess.PIPE, env=e, cwd=cwd, timeout=120)
-            return p.returncode, None, p.stderr.decode("utf-8", "replace")
-        redir = {"devfull": ">/dev/full", "closed": ">&-", "head100": "| head -c 100 >/dev/null"}[mode]
-        script = f"exec {cmd} {redir}" if mode != "head100" else f"{cmd} {redir}; exit ${{PIPESTATUS[0]}}"
-        p = subprocess.run(["bash", "-c", script], stderr=subprocess.PIPE, env=e, cwd=cwd, timeout=120)
-        return p.returncode, None, p.stderr.decode("utf-8", "replace")
-
-
-def _cpu_seconds(pid):
-    """utime + stime of a live process, all its threads, from /proc (Linux)"""
-    with open(f"/proc/{pid}/stat", "rb") as f:
-        fields = f.read().rsplit(b")", 1)[1].split()
-    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+    if mode == "fsize_cut":   # 1 000 bytes already there, limit 1 024: 24 bytes taken, then EFBIG
+        return S.run(argv, "file", env=e, cwd=cwd, fsize=1024, pre=b"x" * 1000)
+    if mode == "devfull" and not S.HAVE_DEVFULL:
+        raise unittest.SkipTest(S.NO_DEVFULL)
+    rc, out, err = S.run(argv, mode, env=e, cwd=cwd)
+    return rc, (out if mode in ("file", "slow") else None), err
 
 
 def run_prefilled(argv, env=None):
@@ -104,15 +71,17 @@ def run_prefilled(argv, env=None):
     asleep, as on a blocking pipe — alive, and in some 1-second window (from the 1st to the 10th second) under 0.2 s of
     CPU, which a loop retrying EAGAIN never does — and once the pipe is drained the receipt must arrive whole.
     Returns (idle, least CPU in a window, exit code, receipt bytes or None, stderr text)."""
-    import fcntl
     r, w = os.pipe()
-    fcntl.fcntl(w, fcntl.F_SETFL, fcntl.fcntl(w, fcntl.F_GETFL) | os.O_NONBLOCK)
+    S.set_nonblocking(w)
     filled = 0
     while True:
         try:
-            filled += os.write(w, b"P" * 4096)
+            n = os.write(w, b"P" * 4096)
         except BlockingIOError:
             break
+        if not n:   # a Windows non-blocking pipe may take 0 bytes instead of raising
+            break
+        filled += n
     try:
         p = subprocess.Popen(argv, stdout=w, stderr=subprocess.PIPE, cwd=ROOT, env=_env(env))
     finally:
@@ -124,9 +93,9 @@ def run_prefilled(argv, env=None):
     time.sleep(1.0)
     while p.poll() is None and time.time() - t0 < 10:
         try:
-            c0 = _cpu_seconds(p.pid)
+            c0 = S.cpu_seconds(p)
             time.sleep(1.0)
-            c1 = _cpu_seconds(p.pid)
+            c1 = S.cpu_seconds(p)
         except OSError:
             break
         if p.poll() is not None:
@@ -150,24 +119,11 @@ def run_prefilled(argv, env=None):
 
 
 def stderr_lost(argv, cwd=ROOT):
-    """argv with stdout to a file and stderr full, closed, or a pipe whose reader has gone: [(how, exit, stdout)]"""
+    """argv with stdout to a file and stderr full (Linux), closed, or a pipe whose reader has gone: [(how, exit, stdout)]"""
     res = []
-    cmd = " ".join(shlex.quote(a) for a in argv)
-    for how in ("2>/dev/full", "2>&-", "gone"):
-        with tempfile.TemporaryDirectory() as td:
-            o = os.path.join(td, "out")
-            if how == "gone":
-                r, w = os.pipe()
-                os.close(r)
-                try:
-                    with open(o, "wb") as f:
-                        rc = subprocess.run(argv, stdout=f, stderr=w, cwd=cwd, env=_env(), timeout=120).returncode
-                finally:
-                    os.close(w)
-            else:
-                rc = subprocess.run(["bash", "-c", f"exec {cmd} > {shlex.quote(o)} {how}"], cwd=cwd, env=_env(), timeout=120).returncode
-            with open(o, "rb") as f:
-                res.append((how, rc, f.read()))
+    for how in (("devfull",) if S.HAVE_DEVFULL else ()) + ("closed", "pipe_closed"):
+        rc, out, _ = S.run(argv, "file", how, env=_env(), cwd=cwd)
+        res.append((how, rc, out))
     return res
 
 
@@ -201,7 +157,31 @@ def one_line(err):
     return len(lines) == 1 and lines[0].startswith("receipt not written: ")
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash, /dev/full and /proc (Linux)")
+class StreamsHarness(unittest.TestCase):
+    """positive control of tests/_streams.py on this system: each state is the one named (a harness that left stdout
+    writable would let every 74 test above pass for the wrong reason, or fail them all)"""
+    PROBE = ("import sys, os\n"
+             "if sys.stdout is None: sys.exit(10)\n"
+             "d = b'x' * 70000\ntry:\n    while d:\n        d = d[os.write(1, d):]\nexcept OSError as e:\n    sys.exit(20)\n"
+             "sys.exit(0)\n")
+
+    def code(self, out, **kw):
+        return S.run([sys.executable, "-c", self.PROBE], out, env=_env(), **kw)[0]
+
+    def test_each_state(self):
+        self.assertEqual(self.code("file"), 0)
+        self.assertEqual(self.code("closed"), 10)
+        self.assertEqual(self.code("pipe_closed"), 20)
+        self.assertEqual(self.code("readonly"), 20)
+        if S.HAVE_DEVFULL:
+            self.assertEqual(self.code("devfull"), 20)
+        if S.HAVE_FSIZE:
+            self.assertEqual(self.code("file", fsize=1024), 20)
+        rc, got, _ = S.run([sys.executable, "-c", "import sys; sys.stdout.write('y' * 1000)"], "slow", env=_env())
+        self.assertEqual((rc, got), (0, b"y" * 1000))
+        self.assertEqual(S.run([sys.executable, "-c", "import sys; sys.exit(0 if sys.stderr is None else 3)"], "file", "closed", env=_env())[0], 0)
+
+
 class Unbuffered(unittest.TestCase):
     """-u / PYTHONUNBUFFERED: the receipt goes to a raw FileIO that can take part of it without raising"""
 
@@ -217,7 +197,7 @@ class Unbuffered(unittest.TestCase):
                 rc, whole, err = run(argv, "file", env)
                 self.assertEqual(rc, code, f"{argv[4:]} {env}: {err[-300:]}")
                 self.assertTrue(whole.endswith(b"\n"))
-                for mode in ("devfull", "pipe_closed", "closed", "fsize_cut", "readonly"):
+                for mode in S.LOSING + FSIZE_MODES:
                     if mode == "fsize_cut" and len(whole) <= 24:   # `--version` fits in the 24 bytes the file still takes
                         continue
                     rc2, _, err2 = run(argv, mode, env)
@@ -230,11 +210,11 @@ class Unbuffered(unittest.TestCase):
         self.assertGreater(len(whole), 200000)
         rc_s, piped, err = run(argv, "slow", UNBUF)
         self.assertEqual((rc_s, piped), (rc, whole), err[-300:])
-        for mode in ("fsize_cut", "head100"):
+        for mode in FSIZE_MODES + ("head100",):
             self.assertEqual(run(argv, mode, UNBUF)[0], EX_IOERR, mode)
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash, /dev/full and /proc (Linux)")
+@unittest.skipUnless(S.NONBLOCKING_PIPE, S.NO_NONBLOCKING_PIPE)
 class NonBlockingStdout(unittest.TestCase):
     """a full non-blocking stdout is waited for asleep, never reported as 74 (the reader is slow, not gone)"""
 
@@ -269,7 +249,6 @@ class NonBlockingStdout(unittest.TestCase):
                 self.check(name + " big", base + [self.big])
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash and /dev/full (POSIX)")
 class ReadOnlyStdout(unittest.TestCase):
     """stdout open read-only (`1<file`): the write is EBADF. Rust's std::io::stdout treats EBADF as success — the Rust
     verifier exited with the verdict's code and no receipt (measured 13/10/2026 on fb31ab4); now 74 in all four"""
@@ -287,7 +266,6 @@ class ReadOnlyStdout(unittest.TestCase):
                 self.assertTrue(one_line(err), f"{name}: {err!r}")
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash, /dev/full and /proc (Linux)")
 class UsageAndRefusalsWithStderrLost(unittest.TestCase):
     """a usage error or a refusal keeps its documented code with stderr full, closed or gone, and writes nothing to
     stdout; `--version` and `--help` are the command's output: lost, they are 74"""
@@ -351,7 +329,7 @@ class UsageAndRefusalsWithStderrLost(unittest.TestCase):
             rc, out, err = run(PY + [flag], "file")
             self.assertEqual(rc, 0, err)
             self.assertTrue(out.startswith(b"omega-cra-evol " if flag == "--version" else b"usage: cra "), out[:40])
-            for mode in ("devfull", "pipe_closed", "closed"):
+            for mode in S.LOSING:
                 rc, _, err = run(PY + [flag], mode)
                 self.assertEqual(rc, EX_IOERR, f"{flag} {mode}: {err!r}")
                 self.assertTrue(one_line(err), f"{flag} {mode}: {err!r}")
@@ -385,24 +363,26 @@ class InProcess(unittest.TestCase):
         s = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         s.write("before\n")
         rc = self._main(s, ["schema", "--template", "early_warning"])
-        head, _, rest = s.buffer.getvalue().decode("utf-8").partition("\n")
+        head, _, rest = s.buffer.getvalue().decode("utf-8").partition(os.linesep)   # the wrapper writes "\n" as os.linesep (Windows: "\r\n")
         self.assertEqual((rc, head), (0, "before"))
         self.assertIn("title", json.loads(rest))
 
-    @unittest.skipUnless(CAN_RUN, "needs a non-blocking pipe (POSIX)")
+    @unittest.skipUnless(S.NONBLOCKING_PIPE, S.NO_NONBLOCKING_PIPE)
     def test_unflushed_caller_text_on_a_full_nonblocking_pipe(self):
         """the caller's text still in its buffer, stdout a non-blocking pipe already full: that text is flushed first
         and waited for like the receipt — exit 0, "before" then the receipt, the process asleep meanwhile (at e25795e:
         exit 74 and nothing written)"""
-        import fcntl
         r, w = os.pipe()
-        fcntl.fcntl(w, fcntl.F_SETFL, fcntl.fcntl(w, fcntl.F_GETFL) | os.O_NONBLOCK)
+        S.set_nonblocking(w)
         filled = 0
         while True:
             try:
-                filled += os.write(w, b"P" * 4096)
+                n = os.write(w, b"P" * 4096)
             except BlockingIOError:
                 break
+            if not n:
+                break
+            filled += n
         s = io.TextIOWrapper(io.BufferedWriter(io.FileIO(w, "w", closefd=False)), encoding="utf-8")
         s.write("before\n")
         got = []
@@ -433,7 +413,6 @@ class InProcess(unittest.TestCase):
         self.assertLess(cpu, 0.3, "waiting must sleep, not spin")
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash")
 class Encodings(unittest.TestCase):
     """the receipt's bytes are the ones Python's own stdout text layer writes for the same text — a byte order mark
     included or not as that layer decides (utf-16 / utf-32: on a file at offset 0 only, never on a pipe or after an
@@ -472,7 +451,6 @@ class Encodings(unittest.TestCase):
         self.assertFalse(out_of(cli, "utf-16", "pipe", {}).startswith(b"\xff\xfe"))
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash and /dev/full (POSIX)")
 class PromisedFilesAndLedger(unittest.TestCase):
     """the temporary of a promised file has a name nobody can predict (created with O_EXCL): a symlink or a FIFO planted
     at `<path>.tmp` is neither followed nor waited on; a ledger line or a stored source document that cannot be written
@@ -496,7 +474,11 @@ class PromisedFilesAndLedger(unittest.TestCase):
         out = os.path.join(self.W, "p.json")
         os.symlink(victim, out + ".tmp")
         fifo = os.path.join(self.W, "q.json.tmp")
-        os.mkfifo(fifo)
+        if S.WIN:   # NO_FIFO: a regular file planted there instead, which must not be opened either
+            with open(fifo, "w") as f:
+                f.write("planted")
+        else:
+            os.mkfifo(fifo)
         for target in (out, os.path.join(self.W, "q.json")):
             r = subprocess.run(PY + ["pack", *self.args, "--out", target], cwd=ROOT, capture_output=True, text=True, timeout=60, env=_env())
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -504,7 +486,7 @@ class PromisedFilesAndLedger(unittest.TestCase):
                 self.assertEqual(json.load(f)["kind"], "cra_evidence_pack/1")
         with open(victim) as f:
             self.assertEqual(f.read(), "untouched")
-        self.assertTrue(os.path.islink(out + ".tmp") and stat.S_ISFIFO(os.lstat(fifo).st_mode))
+        self.assertTrue(os.path.islink(out + ".tmp") and (S.WIN or stat.S_ISFIFO(os.lstat(fifo).st_mode)))
         left = [n for n in os.listdir(self.W) if n.endswith(".tmp")]
         self.assertEqual(sorted(left), ["p.json.tmp", "q.json.tmp"])
 
@@ -514,10 +496,11 @@ class PromisedFilesAndLedger(unittest.TestCase):
         with open(self.ledger, "rb") as f:
             before = f.read()
         out = os.path.join(self.W, "p.json")
-        cmd = " ".join(shlex.quote(a) for a in PY + ["pack", *self.args, "--out", out])
-        p = subprocess.run(["bash", "-c", f"ulimit -f 1; exec {cmd}"], cwd=ROOT, capture_output=True, text=True, timeout=60, env=_env())
-        self.assertEqual(p.returncode, EX_IOERR, p.stderr)
-        self.assertTrue(one_line(p.stderr), p.stderr)
+        if not S.HAVE_FSIZE:
+            self.skipTest(S.NO_FSIZE)
+        rc, _, err = S.run(PY + ["pack", *self.args, "--out", out], "devnull", env=_env(), cwd=ROOT, fsize=1024, timeout=60)
+        self.assertEqual(rc, EX_IOERR, err)
+        self.assertTrue(one_line(err), err)
         self.assertEqual([n for n in os.listdir(self.W) if n.startswith("p.json")], [])
         with open(self.ledger, "rb") as f:
             self.assertEqual(f.read(), before)
@@ -526,10 +509,11 @@ class PromisedFilesAndLedger(unittest.TestCase):
         self.assertEqual(self.vuln().returncode, 0)
         with open(self.ledger, "rb") as f:
             before = f.read()
-        cmd = " ".join(shlex.quote(a) for a in PY + ["sbom", *self.args, "--installed", "pip"])
-        p = subprocess.run(["bash", "-c", f"ulimit -f 1; exec {cmd}"], cwd=ROOT, capture_output=True, text=True, timeout=60, env=_env())
-        self.assertEqual((p.returncode, p.stdout), (EX_IOERR, ""), p.stderr)
-        self.assertTrue(one_line(p.stderr) and "nothing was recorded" in p.stderr, p.stderr)
+        if not S.HAVE_FSIZE:
+            self.skipTest(S.NO_FSIZE)
+        rc, out, err = S.run(PY + ["sbom", *self.args, "--installed", "pip"], "pipe", env=_env(), cwd=ROOT, fsize=1024, timeout=60)
+        self.assertEqual((rc, out), (EX_IOERR, b""), err)
+        self.assertTrue(one_line(err) and "nothing was recorded" in err, err)
         with open(self.ledger, "rb") as f:
             self.assertEqual(f.read(), before)
 
@@ -538,8 +522,7 @@ class PromisedFilesAndLedger(unittest.TestCase):
         """the copy of the ingested document cannot be stored (its folder is read-only): 74, nothing recorded"""
         src = self.ledger + ".sources"
         os.mkdir(src)
-        os.chmod(src, 0o500)
-        self.addCleanup(os.chmod, src, 0o700)
+        S.deny_writes(self, src)
         p = subprocess.run(PY + ["sbom", *self.args, "--from-cyclonedx", SYFT], cwd=ROOT, capture_output=True, text=True, timeout=60, env=_env())
         self.assertEqual((p.returncode, p.stdout), (EX_IOERR, ""), p.stderr)
         self.assertTrue(one_line(p.stderr) and "nothing was recorded" in p.stderr, p.stderr)
@@ -559,9 +542,9 @@ class PromisedFilesAndLedger(unittest.TestCase):
     def test_stdout_closed_leaves_the_ledger_whole(self):
         """started with fd 1 and fd 2 closed, the ledger may be opened as descriptor 1: the receipt's failure must not
         point it at /dev/null or write the receipt into it"""
-        cmd = " ".join(shlex.quote(a) for a in PY + ["vuln", *self.args, "--id", "CVE-2026-0001", "--aware", "2026-10-12T00:00:00Z", "--allow-overdue"])
-        p = subprocess.run(["bash", "-c", f"exec {cmd} >&- 2>&-"], cwd=ROOT, timeout=60, env=_env())
-        self.assertEqual(p.returncode, EX_IOERR)
+        rc, _, _ = S.run(PY + ["vuln", *self.args, "--id", "CVE-2026-0001", "--aware", "2026-10-12T00:00:00Z", "--allow-overdue"],
+                         "closed", "closed", env=_env(), cwd=ROOT, timeout=60)
+        self.assertEqual(rc, EX_IOERR)
         self.assertEqual(self.vuln("CVE-2026-0002").returncode, 0)
         sys.path.insert(0, ROOT)
         from omega_cra_evol.ledger import Ledger
@@ -578,7 +561,7 @@ class WriteTmp(unittest.TestCase):
         self.W = tempfile.mkdtemp(prefix="cra_wt_")
         self.addCleanup(shutil.rmtree, self.W, True)
 
-    @unittest.skipUnless(CAN_RUN, "needs POSIX resource limits")
+    @unittest.skipUnless(S.HAVE_FSIZE, S.NO_FSIZE)
     def test_short_write_under_a_file_size_limit(self):
         code = ("import resource, sys; sys.path.insert(0, sys.argv[1]); from omega_cra_evol import outputs\n"
                 "resource.setrlimit(resource.RLIMIT_FSIZE, (100, 100))\n"
@@ -607,7 +590,6 @@ class WriteTmp(unittest.TestCase):
         with open(victim) as f:
             self.assertEqual(f.read(), "untouched")
 
-    @unittest.skipUnless(CAN_RUN, "needs a FIFO (POSIX)")
     def test_existing_regular_file_or_fifo_at_the_drawn_name(self):
         """O_EXCL itself, not only O_NOFOLLOW: a regular file at the very name the call drew is refused, not truncated,
         and a FIFO there is refused at once, never waited on (child process: a regression would hang, not pass)"""
@@ -617,6 +599,8 @@ class WriteTmp(unittest.TestCase):
                 "else:\n    print('written')\n")
         for kind in ("regular", "fifo"):
             with self.subTest(kind=kind):
+                if kind == "fifo" and S.WIN:
+                    self.skipTest(NO_FIFO)
                 d = tempfile.mkdtemp(prefix="cra_wt_", dir=self.W)
                 target = os.path.join(d, "p.json")
                 name = target + ".0000000000000000.tmp"
@@ -672,7 +656,6 @@ sys.exit(main(["vuln", "--ledger", ledger, "--product", "p", "--version", "1", "
 """
 
 
-@unittest.skipUnless(CAN_RUN, "needs bash and /dev/full (POSIX)")
 class FeedRefusalsWithStderrLost(unittest.TestCase):
     """`vuln --source cisa_kev` refused (the feed unavailable, the id not in it): one line, exit 1, nothing recorded and
     nothing on stdout — with stderr full, closed or gone too (`print(..., file=sys.stderr)` put the line on STDOUT with

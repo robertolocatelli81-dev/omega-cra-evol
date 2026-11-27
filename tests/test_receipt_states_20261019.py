@@ -2,6 +2,9 @@
 """0.6.0 receipt (spec/RECEIPT.md): admission, refusal_class, states (cra-evidence/states-1), policy — one test per rule,
 then the generative bench (verifiers/states_bench.py) and one sabotage that must turn it red. Every test here fails on
 0.5.1 (the fields do not exist there; the tip case exits 1 there)."""
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import _streams  # noqa: E402
 import importlib
 import json
 import os
@@ -141,9 +144,9 @@ class TestStates(unittest.TestCase):
         os.remove(led); os.mkdir(led)
         r = VP.verify_pack(pack, trust_store=self.trust("full"))
         self.assertEqual(r["states"]["ledger_anchor"], {"state": "contradicted", "reasons": ["ledger_malformed"]})
-        if os.geteuid() != 0:   # root reads a chmod-000 file: the case does not exist for it
+        if not (hasattr(os, "geteuid") and os.geteuid() == 0):   # root reads a chmod-000 file: the case does not exist for it
             d, pack = self.copy("full")
-            os.chmod(os.path.join(d, "cra.ledger.jsonl"), 0); os.chmod(pack + ".sig.json", 0)
+            _streams.deny_reads(self, os.path.join(d, "cra.ledger.jsonl")); _streams.deny_reads(self, pack + ".sig.json")
             r = VP.verify_pack(pack, trust_store=self.trust("full"))
             self.assertEqual(r["states"]["ledger_anchor"], {"state": "not_evaluated", "reasons": ["unreadable"]})
             self.assertEqual(r["states"]["producer_signature"], {"state": "not_evaluated", "reasons": ["unreadable"]})

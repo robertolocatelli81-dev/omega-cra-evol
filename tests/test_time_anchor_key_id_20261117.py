@@ -95,8 +95,8 @@ class Lab:
         """the DER of a TimeStampToken of `openssl ts -reply` (sid = issuerAndSerialNumber) over a SHA-256 imprint"""
         j = self.j
         with open(j("tsa.cnf"), "w") as f:
-            f.write(f"[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {j('serial')}\ncrypto_device = builtin\n"
-                    f"signer_cert = {j('tsa.crt')}\ncerts = {j('ca.crt')}\nsigner_key = {j('tsa.key')}\n"
+            f.write(f"[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {j('serial').replace(os.sep, '/')}\ncrypto_device = builtin\n"
+                    f"signer_cert = {j('tsa.crt').replace(os.sep, '/')}\ncerts = {j('ca.crt').replace(os.sep, '/')}\nsigner_key = {j('tsa.key').replace(os.sep, '/')}\n"
                     "signer_digest = sha256\ndefault_policy = 1.2.3.4.1\ndigests = sha256\naccuracy = secs:1\n"
                     f"ordering = yes\ntsa_name = {'yes' if tsa_name else 'no'}\ness_cert_id_chain = {'yes' if chain else 'no'}\n"
                     f"ess_cert_id_alg = {self.ess_alg}\n")

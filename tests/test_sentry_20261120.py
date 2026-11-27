@@ -310,7 +310,6 @@ print(Ledger(led).verify()["entries"])
 """
 
 
-@unittest.skipUnless(hasattr(os, "symlink") and hasattr(os, "mkfifo"), "needs symlinks and FIFOs")
 class LedgerStateFile(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
@@ -343,6 +342,7 @@ class LedgerStateFile(unittest.TestCase):
         self.assertFalse(os.path.islink(self.led + L.STATE_SUFFIX))
         self.assertEqual(L.Ledger(self.led).verify()["entries"], 2)
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Windows has no FIFO in a folder (its named pipes live under \\\\.\\pipe\\ only): a FIFO at a name the ledger chooses has no equivalent there")
     def test_fifo_at_the_old_temporary_name_does_not_block_the_append(self):
         ok, out = run_child(APPEND_WITH_FIFO, self.led, ".tmp")
         self.assertTrue(ok, f"the append did not end within {CEILING} s: {out}")

@@ -7,6 +7,9 @@ stamp (re-signed by the sealer), a `token_sha3` that is not the token's digest o
 it, refused every token as `signature_invalid` (with a good pin beside it, `not_issued_by_pinned_tsa`); an unreadable
 pinned file was a PermissionError; `cra seal --tsa-cert` recorded a seal it then refused (exit 1: a retry records it
 twice), also for an asserted seal; `verify` raised TypeError on a record whose `hash` is a list."""
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import _streams  # noqa: E402
 import copy
 import hashlib
 import json
@@ -93,12 +96,9 @@ class Closed(unittest.TestCase):
     def test_unreadable_pin_is_a_value_error(self):
         u = os.path.join(self.td, "u.pem")
         shutil.copy(self.tsa.ca, u)
-        os.chmod(u, 0)
-        try:
-            with self.assertRaises(ValueError):
-                TA.make_timestamp_trust_fn(self.lte, [u])
-        finally:
-            os.chmod(u, 0o600)
+        _streams.deny_reads(self, u)   # Windows: an ACL entry, the mode does not stop a read there
+        with self.assertRaises(ValueError):
+            TA.make_timestamp_trust_fn(self.lte, [u])
 
     def test_token_base64_is_strict(self):
         tok = self.lte.records[1]["token_b64"]

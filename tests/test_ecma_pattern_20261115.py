@@ -20,6 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CTL = os.path.join(HERE, "data", "spdx_controls")
 SN = "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79"
 NODE = shutil.which("node")
+# PATH only; on Windows node also needs SYSTEMROOT (its CSPRNG aborts at start without it: measured 27/11/2026)
+NODE_ENV = {"PATH": os.environ.get("PATH", ""), **({"SYSTEMROOT": os.environ["SYSTEMROOT"]} if "SYSTEMROOT" in os.environ else {})}
 
 try:
     import jsonschema  # noqa: F401
@@ -174,7 +176,7 @@ class TestAgainstNode(unittest.TestCase):
                         "const c=new Map();process.stdout.write(JSON.stringify(L.map(l=>{const [p,s]=JSON.parse(l);"
                         "if(!c.has(p))c.set(p,new RegExp(p,'u'));return c.get(p).test(s);})));")
             inp = "\n".join(json.dumps(c) for c in cases) + "\n"
-            r = subprocess.run([NODE, js], input=inp, capture_output=True, text=True, env={"PATH": os.environ.get("PATH", "")})
+            r = subprocess.run([NODE, js], input=inp, capture_output=True, text=True, env=NODE_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             theirs = json.loads(r.stdout)
         self.assertEqual(len(theirs), len(cases))
@@ -211,7 +213,7 @@ class TestAgainstNode(unittest.TestCase):
                         ".join('')})));")
             keys = sorted(ours)
             r = subprocess.run([NODE, js], input=json.dumps([keys, strs]), capture_output=True, text=True,
-                               env={"PATH": os.environ.get("PATH", "")})
+                               env=NODE_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             theirs = dict(zip(keys, json.loads(r.stdout)))
         self.assertEqual([p for p in keys if theirs[p] != ours[p]], [])

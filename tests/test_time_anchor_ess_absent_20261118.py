@@ -109,8 +109,8 @@ class Pki:
         with open(j("serial"), "w") as f:
             f.write("01\n")
         with open(j("tsa.cnf"), "w") as f:
-            f.write(f"[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {j('serial')}\ncrypto_device = builtin\n"
-                    f"signer_cert = {j('S.crt')}\nsigner_key = {j('S.key')}\nsigner_digest = sha256\n"
+            f.write(f"[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {j('serial').replace(os.sep, '/')}\ncrypto_device = builtin\n"
+                    f"signer_cert = {j('S.crt').replace(os.sep, '/')}\nsigner_key = {j('S.key').replace(os.sep, '/')}\nsigner_digest = sha256\n"
                     "default_policy = 1.2.3.4.1\ndigests = sha256\ness_cert_id_alg = sha256\ness_cert_id_chain = no\n")
         out = run("openssl", "x509", "-in", j("S.crt"), "-noout", "-ext", "subjectKeyIdentifier").stdout.decode()
         self.ski = bytes.fromhex(out.strip().splitlines()[-1].strip().replace(":", ""))

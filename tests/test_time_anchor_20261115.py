@@ -113,7 +113,9 @@ class TimeAnchor(unittest.TestCase):
 
     def test_another_tsa_pinned(self):
         self.assertEqual(answers(chain(self.tsa, 2), [self.other.ca]), ([False, False], ["not_issued_by_pinned_tsa"] * 2))
-        self.assertEqual(answers(chain(self.tsa, 1), [self.other.ca, self.tsa.ca])[0], [True])      # one of several pins
+        lte = chain(self.tsa, 1)
+        fn = TA.make_timestamp_trust_fn(lte, [self.other.ca, self.tsa.ca])
+        self.assertEqual([fn(r) for r in lte.records], [True], fn.log)                              # one of several pins
 
     def test_tokens_that_stamp_something_else(self):
         s = Signer("test-anchor")
