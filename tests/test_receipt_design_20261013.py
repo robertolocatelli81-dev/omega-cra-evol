@@ -407,7 +407,7 @@ class InProcess(unittest.TestCase):
         data = b"".join(got)
         self.assertEqual(rc, 0)
         self.assertEqual(data[:filled], b"P" * filled)
-        head, _, rest = data[filled:].decode("utf-8").partition("\n")
+        head, _, rest = data[filled:].decode("utf-8").partition(os.linesep)   # the wrapper writes "\\n" as os.linesep
         self.assertEqual(head, "before")
         self.assertIn("title", json.loads(rest))
         self.assertLess(cpu, 0.3, "waiting must sleep, not spin")
