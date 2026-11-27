@@ -21,10 +21,16 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None,
     return builtins.open(file, mode, buffering, encoding, errors, newline, closefd, opener)
 
 
+HELD = []   # Windows: handles that keep a file unreadable until the run ends
+
+
 def unreadable(path):
-    """`path` cannot be read: mode 000 (POSIX); Windows, where the mode does not stop a read: an ACL entry denying it"""
+    """`path` cannot be opened for reading: mode 000 (POSIX). Windows: the mode does not stop a read, and an ACL entry that
+    denies it did not stop Node and Go on the CI runner (CI 27/11/2026: they read it where Python could not); the file
+    held open here with no sharing does stop every opener (a sharing violation)"""
     if WIN:
-        subprocess.run(["icacls", path, "/deny", "*S-1-1-0:(R)"], check=True, capture_output=True, timeout=60)
+        import _winapi
+        HELD.append(_winapi.CreateFile(path, 0x80000000, 0, 0, 3, 0, 0))   # GENERIC_READ, no FILE_SHARE_*, OPEN_EXISTING
     else:
         os.chmod(path, 0)
 
@@ -776,6 +782,7 @@ def _exit_for(ref):
 
 
 def main():
+    sys.stdout.reconfigure(errors="backslashreplace")   # a case's text outside the console's code page (Windows) is escaped, not fatal
     require = set((sys.argv[sys.argv.index("--require") + 1] if "--require" in sys.argv else "").split(",")) - {""}
     vs = {}
     if shutil.which("node"):   # CRA_VERIFY_JS: another tree's Node verifier (the positive control against a pre-alignment copy, 11/10/2026), like CRA_VERIFY_GO / CRA_VERIFY_RUST
@@ -873,6 +880,10 @@ def main():
     print(f"\ncases={n} verifiers={sorted(vs)} divergences={len(diverg)}")
     for d in diverg:
         print("DIVERGENCE", d)
+    if WIN:
+        import _winapi
+        for h in HELD:
+            _winapi.CloseHandle(h)
     shutil.rmtree(base, ignore_errors=True)
     return 1 if diverg else 0
 

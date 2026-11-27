@@ -149,8 +149,8 @@ class TheInputs(unittest.TestCase):
                     while i >= 0:
                         names.add(t[i + len(marker):t.index('"', i + len(marker))])
                         i = t.find(marker, i + 1)
-        self.assertEqual(names,
-                         {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_KMS_ENDPOINT"})
+        self.assertEqual(names,   # PYTHONIOENCODING (0.13.2): the receipt's encoding, not a secret
+                         {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_KMS_ENDPOINT", "PYTHONIOENCODING"})
 
     def test_the_options_that_take_a_secret(self):
         cli = self.read("cli.py")

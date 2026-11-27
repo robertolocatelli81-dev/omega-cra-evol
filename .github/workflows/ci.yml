@@ -53,13 +53,15 @@ jobs:
           python -c "import sys; sys.path.insert(0, 'tests'); import _streams as S; S.fill_volume('/Volumes/crafull')"
           if printf x > /Volumes/crafull/probe; then echo "the volume is not full"; exit 1; fi
           echo "CRA_FULL_DIR=/Volumes/crafull" >> "$GITHUB_ENV"
+      # 512-byte clusters: a file there grows only into the slack of its last cluster (under 512 bytes, less than any
+      # ledger line), so "full" means full for an existing file too (16 MB FAT with larger clusters let a ledger line in)
       - name: "Windows: a full volume, the equivalent of /dev/full and of a file size limit (writes there fail with ENOSPC)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $v = Join-Path $env:RUNNER_TEMP "full.vhdx"
           $s = Join-Path $env:RUNNER_TEMP "full.txt"
-          Set-Content $s "create vdisk file=`"$v`" maximum=16 type=fixed`r`nselect vdisk file=`"$v`"`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat quick label=CRAFULL`r`nassign letter=Q"
+          Set-Content $s "create vdisk file=`"$v`" maximum=16 type=fixed`r`nselect vdisk file=`"$v`"`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat quick label=CRAFULL unit=512`r`nassign letter=Q"
           diskpart /s $s
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path Q:\)) { throw "the full volume was not made (diskpart exit $LASTEXITCODE)" }
           New-Item -ItemType File Q:\sink | Out-Null
@@ -157,13 +159,15 @@ jobs:
           python -c "import sys; sys.path.insert(0, 'tests'); import _streams as S; S.fill_volume('/Volumes/crafull')"
           if printf x > /Volumes/crafull/probe; then echo "the volume is not full"; exit 1; fi
           echo "CRA_FULL_DIR=/Volumes/crafull" >> "$GITHUB_ENV"
+      # 512-byte clusters: a file there grows only into the slack of its last cluster (under 512 bytes, less than any
+      # ledger line), so "full" means full for an existing file too (16 MB FAT with larger clusters let a ledger line in)
       - name: "Windows: a full volume, the equivalent of /dev/full and of a file size limit (writes there fail with ENOSPC)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $v = Join-Path $env:RUNNER_TEMP "full.vhdx"
           $s = Join-Path $env:RUNNER_TEMP "full.txt"
-          Set-Content $s "create vdisk file=`"$v`" maximum=16 type=fixed`r`nselect vdisk file=`"$v`"`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat quick label=CRAFULL`r`nassign letter=Q"
+          Set-Content $s "create vdisk file=`"$v`" maximum=16 type=fixed`r`nselect vdisk file=`"$v`"`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat quick label=CRAFULL unit=512`r`nassign letter=Q"
           diskpart /s $s
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path Q:\)) { throw "the full volume was not made (diskpart exit $LASTEXITCODE)" }
           New-Item -ItemType File Q:\sink | Out-Null

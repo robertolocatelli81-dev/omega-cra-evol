@@ -14,8 +14,31 @@ stdout is non-blocking and cannot be waited for: [WinError 10093]` (measured on 
 45968134390). Windows now sleeps 10 ms and writes again, as a blocking write would wait. Found when the CI started to
 run the whole suite on macOS and Windows (Python 3.9 to 3.14, with and without the extras): `NonBlockingStdout` and
 `InProcess.test_unflushed_caller_text_on_a_full_nonblocking_pipe` in `tests/test_receipt_design_20261013.py` fail on
-0.13.1 there (Python 3.12 and later: before 3.12 `os.set_blocking` cannot make a Windows pipe non-blocking, and the
-two tests say so as their skip reason).
+0.13.1 there (measured on Python 3.12 and later, where `os.set_blocking` takes a Windows pipe).
+
+**Windows, before Python 3.12: a full non-blocking stdout reported as ENOSPC is waited for too.** There the interpreter
+raises `OSError` ENOSPC, not `BlockingIOError`, for a full PIPE_NOWAIT pipe: the receipt writer now treats that errno as
+"full" only on a descriptor that is a pipe (GetFileType), and writes in pieces of 4096 bytes there (a `BufferedWriter`
+handed part of a larger piece to the pipe before raising and the part came twice: measured in ap2-evidence-pack, same
+author). The tests now make the pipe non-blocking with `SetNamedPipeHandleState` on every Windows Python and pass on
+3.9 to 3.11 (CI run 45979434746); on 0.13.1 they did not run there (skipped), so the failure before is not measured here.
+
+**Windows: a receipt outside the ANSI code page is written.** Python gives a pipe the ANSI code page (cp1252) on Windows:
+`cra verify` of a path with `✓` exited 74, `receipt not written: 'charmap' codec can't encode character '\u2713'`, for a
+user who set nothing (CI run 45979434746, Windows, Python 3.9; `DefaultEncoding` in
+`tests/test_receipt_design_20261013.py`). The receipt is now UTF-8 unless `PYTHONIOENCODING` names an encoding, as the
+JS, Go and Rust verifiers write it.
+
+**The four verifiers on Windows agree** (the differential oracle ran there for the first time, CI run 45979434746; 17
+divergences, all now cases of `verifiers/differential.py` on the three systems):
+- the Rust verifier joined a stored source document's path with `/` to a verbatim `\\?\` path from `canonicalize`,
+  where `/` is not a separator (os error 123): every ingested SBOM's stored source read as unusable. It now joins with
+  the system's separator.
+- a pack path ending with a separator or a `.` component (`p.json/`, `p.json/.`): POSIX answers ENOTDIR, while on
+  Windows Node read `p.json/` and Go refused `p.json/.`, which Python read. The four now refuse such a path
+  (`pack-json` FAIL) before the OS sees it.
+- Node reports a name too long for the file system as ENOENT on Windows: a 263-character sidecar name read as "not
+  signed" there while the three others refuse it. A last component above 255 UTF-16 units is never "absent" now.
 
 The class found on 25-26/11/2026 in ap2-evidence-pack 1.11.2 and cryptovalid-opencore 0.29.1 (same author), searched
 here on 27/11/2026. The inputs that take a secret, counted with `grep` on the sources: the seed files of `--key` (`sign`,

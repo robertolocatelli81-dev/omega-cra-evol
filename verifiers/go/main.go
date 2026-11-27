@@ -26,6 +26,21 @@ import (
 	"syscall"
 )
 
+const packPathFolder = "pack path names a folder: it ends with a separator or a \".\" component"
+
+func namesAFolder(p string) bool {
+	seps := []string{"/"}
+	if os.PathSeparator == '\\' {
+		seps = append(seps, "\\")
+	}
+	for _, s := range seps {
+		if strings.HasSuffix(p, s) || strings.HasSuffix(p, s+".") {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	packKind  = "cra_evidence_pack/1"
 	scopeMark = "NOT a conformity assessment"
@@ -239,6 +254,9 @@ func verifyPack(packPath, ledgerPath string, trust map[string]string, haveTrust 
 		panic("injected internal error (" + faultEnv + "=1)")
 	}
 	var layers []layer
+	if namesAFolder(packPath) { // 0.13.2: the same refusal in the four, before the OS sees the path (Windows normalises it in some runtimes)
+		return result{Authenticity: "FAIL", Layers: []layer{{"pack-json", "FAIL", packPathFolder}}}
+	}
 	raw, err := readRegular(packPath, maxDocBytes)
 	if err != nil {
 		return result{Authenticity: "FAIL", Layers: []layer{{"pack-json", "FAIL", err.Error()}}}

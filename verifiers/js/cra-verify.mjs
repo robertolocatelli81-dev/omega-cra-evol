@@ -75,7 +75,12 @@ function readRegular(p, cap = MAX_DOC_BYTES) {
   } finally { closeSync(fd); }
 }
 // lstat ENOENT / ENOTDIR = absent; anything else at the path (FIFO, device, directory, dangling symlink) is PRESENT and must read as a regular file
-const present = (p) => { try { lstatSync(p); return true; } catch (e) { return !(e.code === "ENOENT" || e.code === "ENOTDIR"); } };
+// Windows: libuv reports a name too long for the file system (ERROR_INVALID_NAME) as ENOENT, so a 263-character sidecar
+// name read as "absent" there while the three others refuse it (CI 27/11/2026): a last component above 255 UTF-16 units
+// is never absent
+const tooLongName = (p) => process.platform === "win32" && p.split(/[\\/]/).pop().length > 255;
+const absent = (e, p) => (e.code === "ENOENT" || e.code === "ENOTDIR") && !tooLongName(p);
+const present = (p) => { try { lstatSync(p); return true; } catch (e) { return !absent(e, p); } };
 function pyEscape(s) {
   if (!/[^\x20-\x7e]|["\\]/.test(s)) return '"' + s + '"';   // fast path: nothing to escape (a 65 MB pad must not build a 65 M-node rope)
   let out = '"';
@@ -234,6 +239,10 @@ export function verifyPack(packPath, { ledgerPath = null, trustStore = null, log
 function verify(packPath, ledgerPath, trustStore, logPubkeyHex, requireSources = false) {
   const layers = [];
   let pack;
+  // 0.13.2: the same refusal in the four, before the OS sees the path (on Windows Node normalised "p.json/" and read it)
+  const seps = process.platform === "win32" ? ["/", "\\"] : ["/"];
+  if (seps.some((s) => packPath.endsWith(s) || packPath.endsWith(s + ".")))
+    return { ok: false, authenticity: "FAIL", anchored: false, layers: [L("pack-json", "FAIL", "pack path names a folder: it ends with a separator or a \".\" component")], pack_sha3: null };
   try { pack = strictParse(readText(packPath)); layers.push(L("pack-json", "PASS")); }
   catch (e) { return { ok: false, authenticity: "FAIL", anchored: false, layers: [L("pack-json", "FAIL", String(e.message))], pack_sha3: null }; }
   if (!isObj(pack)) return { ok: false, authenticity: "FAIL", anchored: false, layers: [L("pack-json", "FAIL", "pack is not a JSON object")], pack_sha3: null };
@@ -341,7 +350,7 @@ function checkTip(count, first, last, tipPath, pubHex) {
 
 function verifySidecar(packPath, pack, trustStore) {
   const sp = packPath + ".sig.json";
-  try { lstatSync(sp); } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return { status: "SKIP", detail: "pack not signed" }; return { status: "FAIL", detail: `sidecar path unusable (${e.code})` }; }   // one rule in the four
+  try { lstatSync(sp); } catch (e) { if (absent(e, sp)) return { status: "SKIP", detail: "pack not signed" }; return { status: "FAIL", detail: `sidecar path unusable (${tooLongName(sp) ? "ENAMETOOLONG" : e.code})` }; }   // one rule in the four
   let side; try { side = strictParse(readText(sp)); } catch (e) { return { status: "FAIL", detail: "unreadable: " + e.message }; }
   if (!isObj(side)) return { status: "FAIL", detail: "sidecar is not a JSON object" };
   const unknownSide = unknownKeys(side, SIDECAR_KEYS);   // closed sidecar schema (2026-10-10): before any field is read
@@ -418,7 +427,7 @@ function sourceDocuments(lp, entries, require) {
   let present = 0, absent = 0; const bad = malformed ? [`${malformed} record(s) with a malformed source hash`] : [];
   for (const h of [...wanted].sort()) {
     const fp = lp + ".sources/" + h + ".json";   // concatenation, never path.join (which would resolve ".." lexically before a symlink)
-    try { lstatSync(fp); } catch (e) { if (e.code === "ENOENT") { absent++; continue; } bad.push(`${h.slice(0, 16)}… stored path unusable (${e.code})`); continue; }
+    try { lstatSync(fp); } catch (e) { if (e.code === "ENOENT" && !tooLongName(fp)) { absent++; continue; } bad.push(`${h.slice(0, 16)}… stored path unusable (${e.code})`); continue; }
     let got;
     try { got = sha256(readRegular(fp, MAX_SOURCE_BYTES)); }   // opened without blocking, judged on the open descriptor, bounded
     catch (e) {

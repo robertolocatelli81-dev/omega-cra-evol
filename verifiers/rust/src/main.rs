@@ -222,6 +222,11 @@ fn is_instant(s: &str) -> bool {
 
 struct Out { ok: bool, assessed: bool, auth: String, anchored: bool, layers: Vec<Layer>, pack_sha3: Option<String> }
 
+fn names_a_folder(p: &str) -> bool {
+    let seps: &[&str] = if cfg!(windows) { &["/", "\\"] } else { &["/"] };
+    seps.iter().any(|s| p.ends_with(s) || p.ends_with(&format!("{s}.")))
+}
+
 fn source_documents(lp: &str, entries: &[BTreeMap<String, Json>], require: bool) -> Layer {
     let mut wanted: Vec<String> = Vec::new();
     let mut malformed = 0usize;
@@ -245,7 +250,9 @@ fn source_documents(lp: &str, entries: &[BTreeMap<String, Json>], require: bool)
     let (mut present, mut absent, mut bad): (usize, usize, Vec<String>) = (0, 0, Vec::new());
     if malformed > 0 { bad.push(format!("{malformed} record(s) with a malformed source hash")); }
     for h in &wanted {
-        let fp = format!("{lp}.sources/{h}.json");
+        // MAIN_SEPARATOR: on Windows lp can be a verbatim path (\\?\ from canonicalize), where "/" is not a separator
+        // (os error 123, CI 27/11/2026); still a concatenation, never a join that resolves ".."
+        let fp = format!("{lp}.sources{}{h}.json", std::path::MAIN_SEPARATOR);
         match std::fs::symlink_metadata(&fp) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => { absent += 1; continue; }   // genuinely absent
             Err(e) => { bad.push(format!("{}… stored path unusable ({e})", &h[..16])); continue; }
@@ -273,6 +280,8 @@ fn source_documents(lp: &str, entries: &[BTreeMap<String, Json>], require: bool)
 fn verify(pack_path: &str, ledger_path: Option<&str>, trust: Option<&BTreeMap<String, Json>>, log_pub: Option<&str>, require_sources: bool) -> Out {
     if std::env::var(FAULT_ENV).as_deref() == Ok("1") { panic!("injected internal error ({FAULT_ENV}=1)"); }
     let fail = |layer: &str, detail: String| Out { ok: false, assessed: true, auth: "FAIL".into(), anchored: false, layers: vec![Layer(layer.into(), "FAIL".into(), detail)], pack_sha3: None };
+    // 0.13.2: the same refusal in the four, before the OS sees the path (Windows normalises it in some runtimes)
+    if names_a_folder(pack_path) { return fail("pack-json", "pack path names a folder: it ends with a separator or a \".\" component".into()); }
     let raw = match read_text(pack_path) { Ok(t) => t, Err(e) => return fail("pack-json", e) };
     let pack = match parse_obj(&raw) { Ok(o) => o, Err(e) => return fail("pack-json", e) };
     let mut layers = vec![Layer("pack-json".into(), "PASS".into(), String::new())];

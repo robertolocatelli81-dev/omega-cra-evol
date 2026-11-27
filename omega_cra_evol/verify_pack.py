@@ -203,12 +203,27 @@ def _source_documents(ledger_path: str, entries: List[Dict[str, Any]], require: 
     return _layer("source-documents", "PASS", f"{present} source document(s) present, bytes hash to the recorded SHA-256")
 
 
+PACK_PATH_FOLDER = "pack path names a folder: it ends with a separator or a \".\" component"
+
+
+def _names_a_folder(path: Any) -> bool:
+    p = os.fspath(path)
+    p = p.decode("utf-8", "surrogateescape") if isinstance(p, bytes) else p
+    seps = ("/", "\\") if os.name == "nt" else ("/",)
+    return p.endswith(seps) or any(p.endswith(s + ".") for s in seps)
+
+
 def _verify(path, ledger_path, trust_store, log_pubkey_hex, require_sources=False) -> Dict[str, Any]:
     layers: List[Dict[str, str]] = []
     el: Dict[str, List[tuple]] = {k: [] for k in SUBJECTS}   # 0.6.0 state elements, recorded where each check runs
     try:
         # OS path semantics (pathlib would turn "p.json/" into "p.json"; the three do not); a regular file within
-        # MAX_DOC_BYTES; strict: duplicate keys / NaN / invalid UTF-8 refused, like the three verifiers
+        # MAX_DOC_BYTES; strict: duplicate keys / NaN / invalid UTF-8 refused, like the three verifiers. 0.13.2: a path
+        # that ends with a separator or a "." component is refused in the four before the OS sees it — POSIX answers
+        # ENOTDIR, while Windows normalises it away in some runtimes and not in others (CI 27/11/2026: JS read
+        # "p.json/", Go refused "p.json/." where Python read it)
+        if _names_a_folder(path):
+            raise OSError(PACK_PATH_FOLDER)
         pack = parse_line(read_regular(path).decode("utf-8"))
         layers.append(_layer("pack-json", "PASS"))
     except (OSError, ValueError, RecursionError) as e:

@@ -126,14 +126,17 @@ def _p(obj: Any) -> None:
 
 
 def _text_layer_bytes(out: Any, buf: Any, text: str) -> bytes:
-    """The bytes Python's own stdout text layer writes for `text` as the first thing written: its encoding and error
-    handler, "\\n" as os.linesep where the platform translates it (Windows: measured by tests/test_receipt_design_20261013.py), and a byte order mark
+    """The bytes Python's own stdout text layer writes for `text` as the first thing written: its encoding (UTF-8 unless
+    PYTHONIOENCODING names one) and error handler, "\\n" as os.linesep where the platform translates it (Windows: measured by tests/test_receipt_design_20261013.py), and a byte order mark
     only where that layer puts one — utf-16 / utf-32 only on a stdout seekable at offset 0 (a file; on Windows Python's
     layer puts one on a pipe too, measured 27/11/2026), utf-8-sig on a pipe too, none on a seekable stdout past offset 0 (str.encode would put one on a pipe too)."""
     import codecs
     if os.linesep != "\n":
         text = text.replace("\n", os.linesep)
-    encoding = out.encoding or "utf-8"
+    # UTF-8 unless PYTHONIOENCODING names another (0.13.2), as the JS, Go and Rust verifiers write: Windows gives a pipe
+    # the ANSI code page, where a receipt with a character outside it was exit 74 for a user who set nothing
+    # (`receipt not written: 'charmap' codec can't encode character '\u2713'`, CI run 45979434746, Windows, Python 3.9)
+    encoding = (out.encoding or "utf-8") if os.environ.get("PYTHONIOENCODING") else "utf-8"
     enc = codecs.getincrementalencoder(encoding)(out.errors or "strict")
     try:
         seekable = buf.seekable()
