@@ -113,7 +113,7 @@ def _generate(out):
         v01 = {name: A.build_statement(path, led, attested_at=ATTESTED) for name, path in drops.items()}
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    with open(os.path.join(out, "trust_store.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "trust_store.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps({SIGNER: k1[1]}, sort_keys=True) + "\n")
 
     def cve(i):
@@ -128,7 +128,7 @@ def _generate(out):
     def add(name, st, expect, notice, drop=True, ledger=True, raw=None, rule="", key=k1):
         payload = raw if raw is not None else dumps(st)
         fn = name + ".intoto.json"
-        with open(os.path.join(out, fn), "w", encoding="utf-8") as f:
+        with open(os.path.join(out, fn), "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(envelope(payload, key), indent=1, sort_keys=True) + "\n")
         vectors.append({"name": name, "rule": rule, "envelope": fn, "trust_store": "trust_store.json",
                         "drop": files[notice] if drop else None, "ledger": "ledger.jsonl" if ledger else None,
@@ -268,7 +268,7 @@ def _generate(out):
                               "the exit code must be the expected one, the set of reason codes in `reasons` must equal the "
                               "expected codes, and each expected receipt value must be the receipt's",
                 "vectors": vectors}
-    with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(manifest, indent=1, sort_keys=True, ensure_ascii=False) + "\n")
     return manifest
 

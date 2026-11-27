@@ -40,6 +40,9 @@ jobs:
           python -m pip install .
           if python -c "import cryptography" 2>/dev/null; then echo "cryptography must not be installed here"; exit 1; fi
           if python -c "import jsonschema" 2>/dev/null; then echo "jsonschema must not be installed here"; exit 1; fi
+      - name: Windows has no IANA time-zone database of its own; Python reads the tzdata package (a test need, not an extra)
+        if: runner.os == 'Windows'
+        run: python -m pip install tzdata
       - name: The tools the suite calls, as found on this runner
         run: |
           which openssl node bash || true

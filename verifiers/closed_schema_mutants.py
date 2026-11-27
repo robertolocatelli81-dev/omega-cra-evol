@@ -231,7 +231,9 @@ def discover(tree, tmp, only=None, js_override=None):
 
 def run_one(cmd, cwd, env, path):
     try:
-        out = subprocess.run(cmd + [path], capture_output=True, text=True, timeout=120, cwd=cwd, env={**os.environ, **env})
+        # UTF-8 both ways: Node writes it, and Python's stdout on a Windows pipe is the locale's code page otherwise
+        out = subprocess.run(cmd + [path], capture_output=True, text=True, encoding="utf-8", timeout=120, cwd=cwd,
+                             env={**os.environ, "PYTHONIOENCODING": "utf-8", **env})
         r = json.loads(out.stdout)
     except Exception:  # noqa: BLE001
         return ("NONJSON/CRASH",), None
@@ -257,6 +259,7 @@ def main(argv=None):
     ap.add_argument("--out", default=None)
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args(argv)
+    sys.stdout.reconfigure(errors="backslashreplace")   # a mutation's name outside the console's code page (Windows) is escaped, not fatal
     n = a.n or (90 if a.quick else 600)
     rng = random.Random(a.seed)
     tmp = tempfile.mkdtemp(prefix="cra-closed-mutants-")

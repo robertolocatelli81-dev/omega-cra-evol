@@ -114,9 +114,9 @@ def _generate(out):
         entries = list(L.Ledger(led).entries())
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    with open(os.path.join(out, "trust_store.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "trust_store.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps({SIGNER: k1[1]}, sort_keys=True) + "\n")
-    with open(os.path.join(out, "trust_store_small_order.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "trust_store_small_order.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps({SIGNER: SMALL_ORDER_KEY}, sort_keys=True) + "\n")
     base = json.loads(ew)
 
@@ -265,7 +265,7 @@ def _generate(out):
                 "how_to_run": "cra verify-attestation <envelope> --trust-store <trust_store> [--drop <drop>] [--ledger <ledger>]; the exit "
                               "code must be the expected one and the set of reason codes in `reasons` must equal the expected codes",
                 "vectors": vectors}
-    with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(manifest, indent=1, sort_keys=True, ensure_ascii=False) + "\n")
     return manifest
 

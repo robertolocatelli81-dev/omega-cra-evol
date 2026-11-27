@@ -62,7 +62,7 @@ if __name__ == "__main__":
     with open(p, encoding="utf-8") as f:
         doc = f.read()
     if "--write" in sys.argv[1:]:
-        with open(p, "w", encoding="utf-8") as f:
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
             f.write(render(doc))
     else:
         sys.stdout.write(tables() + "\n")

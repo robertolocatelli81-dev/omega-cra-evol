@@ -311,7 +311,7 @@ class UsageAndRefusalsWithStderrLost(unittest.TestCase):
             before = f.read()
         self.expect(PY + ["keygen", key], 1)
         rc, _, err = run(PY + ["keygen", key], "file")
-        self.assertEqual(err, f"keygen refused: {key} already exists (an existing key is never overwritten)\n")
+        self.assertEqual(err, f"keygen refused: {key} already exists (an existing key is never overwritten){os.linesep}")   # stderr is a text stream: os.linesep
         with open(key, "rb") as f:
             self.assertEqual(f.read(), before)
 

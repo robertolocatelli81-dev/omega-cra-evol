@@ -139,7 +139,7 @@ print(len(subs), "ok")
 def _bin():
     """The folder that holds both commands: next to this interpreter (an unactivated venv too), else on PATH."""
     for d in (os.path.dirname(sys.executable), os.path.dirname(shutil.which(DIST) or "")):
-        if d and all(os.access(os.path.join(d, c), os.X_OK) for c in (DIST, "cra")):
+        if d and all(shutil.which(c, path=d) for c in (DIST, "cra")):   # which(): cra.exe on Windows (PATHEXT)
             return d
     return None
 
@@ -224,7 +224,7 @@ class CommandLine(unittest.TestCase):
     @unittest.skipUnless(BIN, "the two commands are not installed side by side in this environment")
     def test_the_installed_commands_are_the_same_entry_point(self):
         for cmd in (DIST, "cra"):
-            r = subprocess.run([os.path.join(BIN, cmd), "--version"], capture_output=True, text=True)
+            r = subprocess.run([shutil.which(cmd, path=BIN), "--version"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue(r.stdout.startswith(DIST + " "), r.stdout)
 
