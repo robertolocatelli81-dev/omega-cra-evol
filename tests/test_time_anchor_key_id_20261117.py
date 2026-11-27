@@ -111,7 +111,7 @@ class Lab:
         j = self.j
         with open(j("in.der"), "wb") as f:
             f.write(token)
-        _run("openssl", "cms", "-verify", "-noverify", "-inform", "DER", "-in", j("in.der"), "-out", j("tst.der"))
+        _run("openssl", "cms", "-verify", "-noverify", "-inform", "DER", "-in", j("in.der"), "-binary", "-out", j("tst.der"))   # -binary: Windows' openssl wrote it with CRLF
         more = []
         if extra_signer:
             more = ["-signer", extra_signer.j("tsa.crt"), "-inkey", extra_signer.j("tsa.key")]
@@ -289,8 +289,9 @@ class KeyIdNegatives(unittest.TestCase):
         """only the pinned certificates anchor: SSL_CERT_DIR trusting b's CA does not make b's token pass under a's pin"""
         store = os.path.join(self.td, "store")
         os.makedirs(store, exist_ok=True)
-        shutil.copy(self.other.ca, os.path.join(store, "b-ca.pem"))
-        _run("openssl", "rehash", store)
+        # what `openssl rehash` makes (Windows' openssl has no rehash): the certificate under <subject hash>.0
+        h = _run("openssl", "x509", "-hash", "-noout", "-in", self.other.ca).stdout.decode().strip()
+        shutil.copy(self.other.ca, os.path.join(store, h + ".0"))
         lte = sealed(self.lab, make=self.other.resign)
         old = os.environ.get("SSL_CERT_DIR")
         os.environ["SSL_CERT_DIR"] = store
@@ -323,15 +324,22 @@ class KeyIdNegatives(unittest.TestCase):
         """an openssl whose `verify` does not know -no-CAstore (before 3.0): no verdict, TimeAnchorNotRun"""
         bindir = os.path.join(self.td, "bin")
         os.makedirs(bindir, exist_ok=True)
-        fake = os.path.join(bindir, "openssl")
-        with open(fake, "w") as f:
-            f.write("#!/bin/sh\nif [ \"$1\" = verify ]; then echo 'verify: Unknown option: -no-CAstore' >&2; exit 1; fi\n"
-                    f"exec {shutil.which('openssl')} \"$@\"\n")
-        os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
+        real = shutil.which("openssl")
+        if os.name == "nt":   # no shebang there: a batch file is what PATH runs as `openssl` (PATHEXT)
+            fake = os.path.join(bindir, "openssl.bat")
+            with open(fake, "w") as f:
+                f.write("@echo off\r\nif \"%~1\"==\"verify\" (\r\n  echo verify: Unknown option: -no-CAstore 1>&2\r\n  exit /b 1\r\n)\r\n"
+                        f"\"{real}\" %*\r\nexit /b %ERRORLEVEL%\r\n")
+        else:
+            fake = os.path.join(bindir, "openssl")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\nif [ \"$1\" = verify ]; then echo 'verify: Unknown option: -no-CAstore' >&2; exit 1; fi\n"
+                        f"exec {real} \"$@\"\n")
+            os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
         old = os.environ["PATH"]
         os.environ["PATH"] = bindir + os.pathsep + old
         try:
-            self.assertEqual(shutil.which("openssl"), fake)
+            self.assertEqual(os.path.normcase(shutil.which("openssl")), os.path.normcase(fake))   # Windows: which() puts PATHEXT's case
             fn = TA.make_timestamp_trust_fn(self.lte, [self.lab.ca])
             with self.assertRaises(TA.TimeAnchorNotRun):
                 fn(self.lte.records[0])

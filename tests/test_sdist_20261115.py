@@ -36,6 +36,8 @@ def make_sdist(path, mtime, extra=None):
 
 def run(path, epoch="1700000000"):
     env = {"PATH": os.environ.get("PATH", ""), "SOURCE_DATE_EPOCH": epoch}
+    if "SYSTEMROOT" in os.environ:   # Windows: Python 3.9 cannot seed its hash without it ("failed to get random numbers")
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
     return subprocess.run([sys.executable, "-I", SCRIPT, path], capture_output=True, text=True, env=env)
 
 

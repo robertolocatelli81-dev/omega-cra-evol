@@ -71,7 +71,9 @@ def fail_detail(j, layer):
 
 
 NO_FIFO = "Windows has no FIFO in a folder (its named pipes live under \\\\.\\pipe\\ only): a FIFO at a file's own path has no equivalent there"
-DEVICE = "\\\\.\\NUL" if S.WIN else "/dev/zero"   # a symlink to a device: the null device on Windows (no /dev/zero there)
+# Windows puts no device in a folder (a symlink to \\.\NUL is refused by the system, WinError 4392, measured 27/11/2026):
+# a folder in its place is the object that is not a regular file there
+DEVICE = None if S.WIN else "/dev/zero"
 
 
 class MemoryBound(unittest.TestCase):
@@ -104,7 +106,12 @@ class TestFileObjects(unittest.TestCase):
             return False
         if os.path.lexists(path):
             os.remove(path)
-        os.mkfifo(path) if kind == "fifo" else os.symlink(DEVICE, path)
+        if kind == "fifo":
+            os.mkfifo(path)
+        elif DEVICE is None:
+            os.mkdir(path)
+        else:
+            os.symlink(DEVICE, path)
         return True
 
     @unittest.skipIf(S.WIN, NO_FIFO)

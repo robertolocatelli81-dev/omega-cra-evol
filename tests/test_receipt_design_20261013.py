@@ -425,8 +425,8 @@ class Encodings(unittest.TestCase):
         cli = PY + ["verify", "nö.json"]   # a receipt with a non-ASCII character
         text_path = os.path.join(d, "text")
         r = subprocess.run(cli, capture_output=True, cwd=ROOT, env=_env({"PYTHONIOENCODING": "utf-8"}), timeout=120)
-        with open(text_path, "wb") as f:
-            f.write(r.stdout)
+        with open(text_path, "wb") as f:   # the text, not the bytes: "\n" where stdout wrote os.linesep (Windows: "\r\n")
+            f.write(r.stdout.replace(os.linesep.encode(), b"\n"))
         ref = [sys.executable, "-c", "import sys; sys.stdout.write(open(sys.argv[1], encoding='utf-8', newline='').read())", text_path]
 
         def out_of(argv, enc, dest, env):

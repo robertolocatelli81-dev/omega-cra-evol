@@ -12,7 +12,10 @@ HAVE_OPENSSL = shutil.which("openssl") is not None
 _CNF = ("[ tsa ]\ndefault_tsa = t1\n[ t1 ]\nserial = {d}/serial\ncrypto_device = builtin\nsigner_cert = {d}/tsa.crt\n"
         "certs = {d}/ca.crt\nsigner_key = {d}/tsa.key\nsigner_digest = sha256\ndefault_policy = 1.2.3.4.1\n"
         "digests = sha256, sha3-256\naccuracy = secs:1\nordering = yes\ntsa_name = no\ness_cert_id_chain = no\n"
-        "ess_cert_id_alg = sha256\n[ v3_tsa ]\nextendedKeyUsage = critical,timeStamping\nbasicConstraints = CA:FALSE\n")
+        "ess_cert_id_alg = sha256\n[ v3_tsa ]\nextendedKeyUsage = critical,timeStamping\nbasicConstraints = CA:FALSE\n"
+        # RFC 5280 §4.2.1.1: the issuer's key identifier, so a verifier with two pinned CAs of the same name finds the one
+        # that signed (without it macOS' openssl took the first and failed: certificate signature failure, 27/11/2026)
+        "authorityKeyIdentifier = keyid\nsubjectKeyIdentifier = hash\n")
 
 
 def _run(*a):

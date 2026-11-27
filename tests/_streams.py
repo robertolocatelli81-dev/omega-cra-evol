@@ -243,7 +243,7 @@ def fifo(test, folder):
     import _winapi
     import secrets
     name = "\\\\.\\pipe\\cra-test-" + secrets.token_hex(8)
-    handles = [_winapi.CreateNamedPipe(name, _winapi.PIPE_ACCESS_DUPLEX, _winapi.PIPE_TYPE_BYTE | _winapi.PIPE_WAIT,
-                                       _winapi.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, _winapi.NULL) for _ in range(64)]
+    # PIPE_ACCESS_DUPLEX 3; PIPE_TYPE_BYTE | PIPE_WAIT 0; PIPE_UNLIMITED_INSTANCES 255 (_winapi names only some of them)
+    handles = [_winapi.CreateNamedPipe(name, 3, 0, 255, 65536, 65536, 0, 0) for _ in range(64)]
     test.addCleanup(lambda: [_winapi.CloseHandle(h) for h in handles])
     return name

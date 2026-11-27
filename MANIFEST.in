@@ -2,7 +2,7 @@
 # held the package and 49 test files but no fixtures, specifications, examples, scripts or verifiers).
 include CHANGELOG.md CITATION.cff SECURITY.md SIGNING.md THIRD_PARTY_NOTICES.md LICENSE README.md
 include API.md CONTRIBUTING.md GOVERNANCE.md SUPPORT.md DCO
-include Dockerfile .dockerignore action.yml .gitignore .gitleaksignore
+include Dockerfile .dockerignore action.yml .gitignore .gitleaksignore .gitattributes
 graft .github
 graft container
 graft examples

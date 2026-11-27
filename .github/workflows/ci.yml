@@ -40,6 +40,11 @@ jobs:
           python -m pip install .
           if python -c "import cryptography" 2>/dev/null; then echo "cryptography must not be installed here"; exit 1; fi
           if python -c "import jsonschema" 2>/dev/null; then echo "jsonschema must not be installed here"; exit 1; fi
+      - name: The tools the suite calls, as found on this runner
+        run: |
+          which openssl node bash || true
+          openssl version || true
+          node --version || true
       - name: Unit tests (every suite)
         run: |
           set -o pipefail            # round 9: without it `tee` hid unittest's exit code - this job could not go red
