@@ -6,7 +6,8 @@ It plugs into `sign_pack(pack, key=(signer, public_key_hex), …)` because it ex
 Honest scope: the SigV4 derivation is validated against the official AWS test vector (tests); the end-to-end
 round-trip needs a real account and is exercised on the author's key when a release is signed (recorded in the
 release notes with the public key). Credentials from arguments or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
-AWS_SESSION_TOKEN; a custom endpoint must be https or loopback (a session token must never travel in clear)."""
+AWS_SESSION_TOKEN; a custom endpoint must be https or loopback (a session token must never travel in clear) and
+without user information; a failed request is reported by its kind, errno and HTTP status, never its text."""
 from __future__ import annotations
 
 # The names other code may import from this module (provisional tier of API.md: typed, may change in a minor
@@ -19,11 +20,16 @@ import base64
 import datetime
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
+
+# the variables this module reads: secrets, or a URL that can hold one. No child process of the package receives them
+# (time_anchor runs openssl without them, 0.13.2)
+_SECRET_ENV = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_KMS_ENDPOINT")
 
 
 def derive_signing_key(secret_key: str, datestamp: str, region: str, service: str) -> bytes:
@@ -66,6 +72,8 @@ class KMSSigner:
         ep = endpoint or os.environ.get("AWS_KMS_ENDPOINT")
         if ep:
             u = urllib.parse.urlsplit(ep)
+            if "@" in u.netloc:   # user information is refused before the network, and the URL is not repeated (0.13.2)
+                raise ValueError("AWS KMS custom endpoint must not carry user information (user:password@)")
             loop = (u.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
             # NEMESIS 15/11/2026: any scheme towards a loopback host passed (file://localhost/..., ftp://localhost/...),
             # as in cryptovalid-opencore before its 0.25.0 rule: https, or plain http to a loopback host, and nothing else
@@ -84,8 +92,14 @@ class KMSSigner:
         # loopback, and would receive the signed request (15/11/2026); AWS itself goes through the proxy, if any
         loopback = (urllib.parse.urlsplit(self._endpoint).hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if loopback else urllib.request.build_opener()
-        with opener.open(req, timeout=self.timeout) as r:  # nosec B310 — fixed AWS endpoint, or loopback
-            return json.load(r)
+        try:
+            with opener.open(req, timeout=self.timeout) as r:  # nosec B310 — fixed AWS endpoint, or loopback
+                return json.load(r)
+        except (OSError, http.client.HTTPException) as e:   # its kind, its errno and HTTP status: never its text (0.13.2)
+            n = e.errno if isinstance(e, OSError) and e.errno else getattr(getattr(e, "reason", None), "errno", None)
+            code = getattr(e, "code", None)
+            what = f"AWS KMS request failed: {type(e).__name__}" + (f" HTTP {code}" if isinstance(code, int) else "")
+            raise (OSError(n, what) if isinstance(n, int) else OSError(what)) from None
 
     def _read_pubkey(self) -> str:
         der = base64.b64decode(self._call("TrentService.GetPublicKey", {"KeyId": self.key_id})["PublicKey"])
@@ -110,8 +124,8 @@ class KMSSigner:
 def load_creds_file(path: str) -> Dict[str, str]:
     """KEY=VALUE lines (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN); never logged."""
     out: Dict[str, str] = {}
-    from .ledger import read_regular       # a regular file within the bound (a FIFO or a device is refused unread)
-    for line in read_regular(path).decode("utf-8").splitlines():
+    from .ledger import _read_secret_file   # a regular file within the bound (a FIFO or a device is refused unread); never its path
+    for line in _read_secret_file(path).decode("utf-8").splitlines():
         if "=" in line and not line.strip().startswith("#"):
             k, v = line.strip().split("=", 1)
             out[k.strip()] = v.strip().strip('"').strip("'")

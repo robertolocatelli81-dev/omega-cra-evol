@@ -19,7 +19,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from .canonical import sha3_hex
-from .ledger import FileTooLarge, Ledger, read_regular
+from .ledger import FileTooLarge, Ledger, _name_shown, read_regular
 from .srp_notice import GLOSSARIES, LEGACY_SOURCES, SourcedSRPNotice, SRPNotice
 from .vuln import parse_utc
 
@@ -36,7 +36,7 @@ def _no_dup_keys(pairs):
     d: Dict[str, Any] = {}
     for k, v in pairs:
         if k in d:
-            raise ValueError(f"duplicate key {k!r} (readers disagree on which wins: refused)")
+            raise ValueError(f"duplicate key {_name_shown(k)} (readers disagree on which wins: refused)")
         d[k] = v
     return d
 

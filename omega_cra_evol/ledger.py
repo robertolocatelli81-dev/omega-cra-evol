@@ -107,11 +107,27 @@ def read_regular(path: str, cap: int = MAX_DOC_BYTES) -> bytes:
     return data
 
 
+def _name_shown(name: Any) -> str:
+    """A name as a message repeats it: at most 32 characters, quoted; a longer one (a key put where a name goes) by its
+    length only (0.13.2, a secret that comes in never goes out)."""
+    s = str(name)
+    return repr(s) if len(s) <= 32 else f"of {len(s)} characters"
+
+
+def _read_secret_file(path: str) -> bytes:
+    """read_regular for a file that holds a secret (a seed, AWS credentials): an error says what failed, never the path
+    as given, which can be the secret itself put in place of its file (0.13.2)."""
+    try:
+        return read_regular(path)
+    except OSError as e:
+        raise OSError(e.errno, f"the key file cannot be read ({type(e).__name__})") from None
+
+
 def _no_dup_keys(pairs):
     d = {}
     for k, v in pairs:
         if k in d:
-            raise ValueError(f"duplicate key {k!r} in ledger line (the profile forbids it: readers disagree on which wins)")
+            raise ValueError(f"duplicate key {_name_shown(k)} in ledger line (the profile forbids it: readers disagree on which wins)")
         d[k] = v
     return d
 

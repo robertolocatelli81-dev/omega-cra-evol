@@ -86,6 +86,21 @@ jobs:
           python -c "import cryptography" 2>/dev/null && { echo "cryptography must not be installed here"; exit 1; } || true
           python -c "import jsonschema" 2>/dev/null && { echo "jsonschema must not be installed here"; exit 1; } || true
           python -B -m unittest discover -s tests -p 'test_*.py'
+  secret-leaks:
+    # tests/test_secrets.py on every system: a secret given to the package is searched in everything it writes
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with: {python-version: "3.12"}
+      - name: Install (with signing extra)
+        run: pip install ".[sign]"
+      - name: tests/test_secrets.py
+        run: python -B -m unittest discover -s tests -p test_secrets.py -v
   secrets:
     runs-on: ubuntu-latest
     steps:

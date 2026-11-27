@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .canonical import sha3_hex
-from .ledger import Ledger, read_regular
+from .ledger import Ledger, _name_shown, read_regular
 from .srp_notice import ALL_STAGES, GLOSSARIES, RULE9_STAGES, SOURCE_TOOLS, STREAMS, schema
 from .vuln import EARLY_WARNING_HOURS, NOTIFICATION_HOURS, parse_utc
 
@@ -92,7 +92,7 @@ def _strict_json(raw: bytes, what: str) -> Any:
         d: Dict[str, Any] = {}
         for k, v in pairs:
             if k in d:
-                raise ValueError(f"duplicate key {k!r}")
+                raise ValueError(f"duplicate key {_name_shown(k)}")
             for t in (k, v):
                 if type(t) is str:
                     try:
@@ -548,10 +548,10 @@ def verify_envelope(env_path: str, trust_store: Dict[str, str], drop_path: Optio
             pub = trust_store[name]
             if not isinstance(name, str) or not isinstance(pub, str) or not _HEX64.fullmatch(pub):
                 store_codes.append("trusted_key_malformed")
-                _r(reasons, "trusted_key_malformed", f"trust store key of {str(name)[:80]!r}: 64 lower-case hex required")
+                _r(reasons, "trusted_key_malformed", f"trust store key of {_name_shown(name)}: 64 lower-case hex required")
             elif weak_ed25519_key(pub):
                 store_codes.append("weak_key")
-                _r(reasons, "weak_key", f"trust store key of {name[:80]!r}: small order or non-canonical Ed25519 key, refused")
+                _r(reasons, "weak_key", f"trust store key of {_name_shown(name)}: small order or non-canonical Ed25519 key, refused")
     trusted_by = []
     # §5: every signature that does not verify and every keyid absent from the trust store is LISTED; they do not refuse
     # a statement that another signature makes trusted (keyid selects a candidate key only, DSSE protocol.md)

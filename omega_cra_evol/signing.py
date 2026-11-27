@@ -26,7 +26,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import re
 
-from .ledger import UnreadableFile, parse_line, read_regular
+from .ledger import UnreadableFile, parse_line, read_regular, _read_secret_file
 from .outputs import OutputNotWritten, write_file
 
 HEX64_RE = re.compile(r"[0-9a-f]{64}")
@@ -114,7 +114,7 @@ def load_key(path: str) -> Tuple[Any, str]:
     """(private key object, public key hex). Load ONCE and keep it — never re-read in a hot path."""
     Ed25519PrivateKey, _, ser = _ed()
     # a regular file within the bound: a FIFO or a device in place of the seed file is refused unread (18/11/2026)
-    sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(read_regular(path).decode("utf-8").strip()))
+    sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(_read_secret_file(path).decode("utf-8").strip()))
     return sk, sk.public_key().public_bytes(ser.Encoding.Raw, ser.PublicFormat.Raw).hex()
 
 

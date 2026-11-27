@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.13.2 — unreleased — a secret that comes in never goes out
+
+The class found on 25-26/11/2026 in ap2-evidence-pack 1.11.2 and cryptovalid-opencore 0.29.1 (same author), searched
+here on 27/11/2026. The inputs that take a secret, counted with `grep` on the sources: the seed files of `--key` (`sign`,
+`attest`) and `--tip-key` (every command with a ledger, `seal`), the seed `keygen` writes, `--aws-creds-file`, the
+variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and `AWS_KMS_ENDPOINT`, the arguments of
+`KMSSigner`, the names of a `--trust-store` and the private key of a long-term `Signer`. `tests/test_secrets.py` puts a
+canary into each and searches standard output and error, every file written, the exception, and the environment and
+argv of the one child process (openssl), raw and in hex, HEX, decimal, base64 and base64url at the three offsets. On
+0.13.1 (and on 0.12.0) 9 of its 19 tests fail; the outputs where the canary was found:
+
+- **A KMS endpoint with user information is refused before the network**, without repeating the URL. 0.13.1 accepted
+  `https://u:PASSWORD@host/` in `AWS_KMS_ENDPOINT` (or `endpoint=`): http.client read `PASSWORD@host` as a port, and the
+  traceback of `cra sign` / `cra attest` printed it on stderr; `https://PASSWORD@host/` sent `PASSWORD@host` to the
+  name resolver.
+- **A failed KMS request says its kind, errno and HTTP status, never its text** (`OSError`, no chained traceback).
+- **openssl runs without the four AWS variables** in its environment; 0.13.1 passed the whole environment.
+- **A key file that cannot be read is not named**: a seed given in place of the path of `--key` or `--tip-key`, or a
+  secret in place of `--aws-creds-file`, was printed in the `FileNotFoundError` of the traceback. The error now says
+  `the key file cannot be read (FileNotFoundError)`, with its errno.
+- **A usage error does not repeat a run of 40 or more base64 / hex digits** (an AWS secret key has 40) unless it is a
+  path that exists or whose folder exists: `cra verify p.json SECRET`, an extra argument or an invalid choice printed it.
+- **A name of more than 32 characters is named by its length** (`of 43 characters`) in the reasons of
+  `verify-attestation` about a trust store key, and in the duplicate-key error of the strict JSON reader (ledger lines,
+  trust stores, notice fields, envelopes); 0.13.1 repeated up to 80 characters of a trust store name, or the whole name
+  of a duplicate key, on stdout or stderr.
+
+Found clean on 0.13.1: the seed in `keygen`'s output, in the sidecar, tip, ledger and seal; a malformed seed file's
+content; the private key of an ephemeral or given `Signer` in a seal; the credentials of a creds file or of the
+environment in the output of a KMS request that fails. Not covered: a key given as the value of a public key
+(`--log-pubkey`, `--sealer-pubkey`, a trust store value: 64 hex digits, the same form), a key given as `--signer-id`
+(written into the sidecar by contract), the access key id (20 characters) given in place of an argument.
+
 ## 0.13.1 — 2026-11-20 — text of a third party is read in time proportional to its length; the ledger's state file is written like every other file
 
 Found by a security review of commit 034ed13 (0.13.0) on 20/11/2026 and measured that day on that commit with Python

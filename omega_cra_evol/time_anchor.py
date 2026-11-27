@@ -26,6 +26,7 @@ import subprocess  # nosec B404 - openssl only, fixed arguments, no shell
 import tempfile
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
+from .kms import _SECRET_ENV
 from .longterm import ANCHOR, LongTermEvidence
 from .rfc3161_token import (OID_SHA256, OID_SHA3_256, TokenRefused, _children, _oid, gen_time_seconds,
                             rfc3161_tstinfo, timestamp_token_der)
@@ -117,7 +118,9 @@ def _openssl(args: List[str], timeout: float) -> subprocess.CompletedProcess:
     if not exe:
         raise TimeAnchorNotRun("openssl absent: the token's signature and TSA cannot be checked here")
     try:
-        p = subprocess.run([exe] + args, capture_output=True, timeout=timeout)  # nosec B603 - fixed args, no shell
+        # openssl gets the environment without the variables of a secret this package reads (0.13.2)
+        env = {k: v for k, v in os.environ.items() if k.upper() not in _SECRET_ENV}
+        p = subprocess.run([exe] + args, capture_output=True, timeout=timeout, env=env)  # nosec B603 - fixed args, no shell
     except subprocess.TimeoutExpired:
         raise TimeAnchorNotRun(f"openssl did not answer within {timeout} s") from None
     except OSError as e:

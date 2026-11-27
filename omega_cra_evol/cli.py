@@ -215,6 +215,12 @@ class _Parser(argparse.ArgumentParser):
             return super().print_help(file)
         self._print_outcome(self.format_help())
 
+    def error(self, message: str) -> None:   # a run of 40 or more base64 / hex digits (an AWS secret key: 40) that names no path is not repeated (0.13.2)
+        def keep(m: "re.Match[str]") -> str:
+            s = m.group(0)
+            return s if os.path.exists(s) or os.path.isdir(os.path.dirname(s) or "\0") else "<%d characters not repeated>" % len(s)
+        super().error(re.sub(r"[A-Za-z0-9+/=_.~:\\-]{40,}", keep, message))   # the characters of a path too: one is named whole
+
     def _print_message(self, message, file=None):   # argparse's only writer: error() and exit() print through it
         if not message:
             return
