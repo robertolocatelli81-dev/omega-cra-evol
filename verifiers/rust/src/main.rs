@@ -577,9 +577,27 @@ fn write_all_stdout(mut buf: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn write_all_stdout(buf: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut so = std::io::stdout().lock();
-    so.write_all(buf).and_then(|_| so.flush())
+/// Windows: the same loop. A full PIPE_NOWAIT pipe takes 0 bytes and reports success: on a pipe that is waited for by
+/// sleeping 10 ms and writing again (the equivalent of poll, which takes no pipe there); 0 bytes on anything else is an
+/// error. Before 0.13.2 `write_all` turned it into "failed to write whole buffer", exit 74 (CI run 46013986663).
+#[cfg(windows)]
+fn write_all_stdout(mut buf: &[u8]) -> std::io::Result<()> {
+    use std::io::{ErrorKind, Write};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    extern "system" { fn GetFileType(h: *mut std::ffi::c_void) -> u32; }
+    const FILE_TYPE_PIPE: u32 = 3;
+    let h = std::io::stdout().as_raw_handle();
+    let pipe = unsafe { GetFileType(h as *mut std::ffi::c_void) } == FILE_TYPE_PIPE;
+    let mut out = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_handle(h) });
+    while !buf.is_empty() {
+        match out.write(buf) {
+            Ok(0) if pipe => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Ok(0) => return Err(std::io::Error::new(ErrorKind::WriteZero, format!("short write: {} bytes not written", buf.len()))),
+            Ok(n) => buf = &buf[n..],
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if pipe && e.kind() == ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }

@@ -842,7 +842,7 @@ const exIOErr = 74
 // on a closed pipe the runtime killed the process with SIGPIPE (141); with SIGPIPE ignored (start of main) the write
 // returns EPIPE.
 func writeReceipt(b []byte, code int) int {
-	if _, err := os.Stdout.Write(b); err != nil {
+	if err := writeStdout(b); err != nil {
 		fmt.Fprintln(os.Stderr, "receipt not written: "+err.Error()) // its own error is not checked: the exit code says it
 		return exIOErr
 	}

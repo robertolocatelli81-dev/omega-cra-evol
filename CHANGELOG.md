@@ -37,6 +37,9 @@ divergences, all now cases of `verifiers/differential.py` on the three systems):
 - a pack path ending with a separator or a `.` component (`p.json/`, `p.json/.`): POSIX answers ENOTDIR, while on
   Windows Node read `p.json/` and Go refused `p.json/.`, which Python read. The four now refuse such a path
   (`pack-json` FAIL) before the OS sees it.
+- a full non-blocking stdout on Windows (PIPE_NOWAIT, which takes 0 bytes and reports success): the Rust verifier
+  exited 74 ("failed to write whole buffer") and the Go verifier spun at one CPU second per second until the reader
+  came (CI run 46013986663, `NonBlockingStdout.test_verifiers`). Both now wait 10 ms between tries on a pipe there.
 - Node reports a name too long for the file system as ENOENT on Windows: a 263-character sidecar name read as "not
   signed" there while the three others refuse it. A last component above 255 UTF-16 units is never "absent" now.
 
