@@ -21,12 +21,87 @@ try:
 except ImportError:   # Windows
     resource = None
 
-HAVE_DEVFULL = os.path.exists("/dev/full")
+# A full volume is the equivalent of /dev/full on macOS and Windows, and of a file size limit on Windows: the CI makes one
+# (hdiutil, diskpart) with an empty file `sink` and names it in CRA_FULL_DIR (as ap2-evidence-pack, same author, does)
+FULL_DIR = os.environ.get("CRA_FULL_DIR")
+FILL_LIMIT = 64 << 20   # only a volume made for the tests is filled
+HAVE_DEVFULL = os.path.exists("/dev/full") or bool(FULL_DIR and os.path.isfile(os.path.join(FULL_DIR, "sink")))
 HAVE_FSIZE = resource is not None
-NO_DEVFULL = ("no device whose every write fails with ENOSPC on this system (/dev/full is Linux): the lost write is "
-              "measured here with the pipe whose reader has gone and with the closed descriptor")
-NO_FSIZE = "Windows has no per-process file size limit (RLIMIT_FSIZE): the short write it causes has no equivalent there"
+HAVE_FULL_VOLUME = bool(FULL_DIR and os.path.isdir(FULL_DIR))
+NO_DEVFULL = "no /dev/full here and no full volume named by CRA_FULL_DIR (the CI makes one on macOS and Windows)"
+NO_FSIZE = ("no per-process file size limit on Windows (RLIMIT_FSIZE); its equivalent, a full volume, is not named here "
+            "(CRA_FULL_DIR: the CI makes one)")
 LOSING = ("pipe_closed", "closed", "readonly") + (("devfull",) if HAVE_DEVFULL else ())
+
+
+def fill_volume(d=None):
+    """fill the volume of `d` (CRA_FULL_DIR) to its last byte with files cra-fill-*; idempotent"""
+    import shutil
+    d = d or FULL_DIR
+    if shutil.disk_usage(d).total > FILL_LIMIT:
+        raise RuntimeError(f"CRA_FULL_DIR {d!r} is not a volume made for the tests (above {FILL_LIMIT} bytes): not filled")
+    n = len([x for x in os.listdir(d) if x.startswith("cra-fill-")])
+    for size in (65536, 4096, 512, 1):
+        try:
+            with open(os.path.join(d, f"cra-fill-{n}-{size}"), "wb", buffering=0) as f:
+                b = b"\0" * size
+                while True:
+                    f.write(b)
+        except OSError:
+            pass
+
+
+def unfill_volume(d=None):
+    d = d or FULL_DIR
+    for x in os.listdir(d):
+        if x.startswith("cra-fill-"):
+            os.remove(os.path.join(d, x))
+
+
+def full_sink():
+    """a path whose every write fails with ENOSPC: /dev/full, or the sink on the full volume"""
+    if os.path.exists("/dev/full"):
+        return "/dev/full"
+    fill_volume()
+    return os.path.join(FULL_DIR, "sink")
+
+
+def volume_dir(test):
+    """a new folder on the full volume with room in it (the fillers removed): the caller writes what it needs, then
+    calls fill_volume() so that nothing more fits; removed, and the volume full again, at the test's end"""
+    import secrets
+    import shutil
+    if not HAVE_FULL_VOLUME:
+        test.skipTest(NO_FSIZE)
+    unfill_volume()
+    d = os.path.join(FULL_DIR, "t" + secrets.token_hex(4))
+    os.mkdir(d)
+    test.addCleanup(fill_volume)
+    test.addCleanup(shutil.rmtree, d, True)
+    return d
+
+
+def file_that_cannot_grow(pre=b""):
+    """Windows' equivalent of a file under a size limit: a file holding `pre` on the full volume, full again around it.
+    Returns (path, cleanup)."""
+    import secrets
+    if not HAVE_FULL_VOLUME:
+        raise unittest_skip(NO_FSIZE)
+    unfill_volume()
+    p = os.path.join(FULL_DIR, "o" + secrets.token_hex(4))
+    with open(p, "wb") as f:
+        f.write(pre)
+    fill_volume()
+
+    def cleanup():
+        os.path.exists(p) and os.remove(p)
+        fill_volume()
+    return p, cleanup
+
+
+def unittest_skip(why):
+    import unittest
+    return unittest.SkipTest(why)
 
 
 def _handle(f):
@@ -41,7 +116,7 @@ def _target(kind, path, opened):
     if kind == "file":
         f = open(path, "ab")
     elif kind == "devfull":
-        f = open("/dev/full", "wb")
+        f = open(full_sink(), "ab")
     elif kind == "readonly":
         open(path, "ab").close()
         f = open(path, "rb")
@@ -60,12 +135,13 @@ def _target(kind, path, opened):
     return f
 
 
-def start(argv, out, err="file", env=None, cwd=None, fsize=None, td=None, pre=b""):
+def start(argv, out, err="file", env=None, cwd=None, fsize=None, td=None, pre=b"", out_path=None):
     """Popen of argv with stdout `out` and stderr `err` ("file", "devfull", "pipe_closed", "closed", "readonly",
     "devnull"; stdout also "pipe"). Returns (Popen, stdout path, stderr path, things to close after it ended)."""
-    o, e = os.path.join(td, "out"), os.path.join(td, "err")
-    with open(o, "wb") as f:
-        f.write(pre)
+    o, e = out_path or os.path.join(td, "out"), os.path.join(td, "err")
+    if out_path is None:
+        with open(o, "wb") as f:
+            f.write(pre)
     open(e, "wb").close()
     opened = []
     so = subprocess.PIPE if out == "pipe" else _target(out, o, opened)
@@ -106,10 +182,27 @@ def _close(opened):
         f.close() if hasattr(f, "close") else os.close(f)
 
 
-def run(argv, out="file", err="file", env=None, cwd=None, fsize=None, pre=b"", timeout=120):
-    """(exit code, stdout bytes — what follows `pre` in a file, what a pipe carried, None otherwise —, stderr text)"""
+def run(argv, out="file", err="file", env=None, cwd=None, fsize=None, pre=b"", timeout=120, stdout_only=False):
+    """(exit code, stdout bytes — what follows `pre` in a file, what a pipe carried, None otherwise —, stderr text).
+    `fsize` limits the files of the process (RLIMIT_FSIZE). Windows has no such limit: with `stdout_only` (the caller says
+    the process writes no other file) a stdout file that cannot grow, on the full volume, stands for it"""
+    cleanup = None
+    if fsize is not None and not HAVE_FSIZE:
+        if not stdout_only or out != "file":
+            raise unittest_skip(NO_FSIZE + "; this case limits files other than stdout: see volume_dir")
+        (out_path, cleanup), fsize = file_that_cannot_grow(pre), None
+    else:
+        out_path = None
+    try:
+        return _run(argv, out, err, env, cwd, fsize, pre, timeout, out_path)
+    finally:
+        if cleanup:
+            cleanup()
+
+
+def _run(argv, out, err, env, cwd, fsize, pre, timeout, out_path):
     with tempfile.TemporaryDirectory() as td:
-        p, o, e, opened = start(argv, {"slow": "pipe", "head100": "pipe"}.get(out, out), err, env, cwd, fsize, td, pre)
+        p, o, e, opened = start(argv, {"slow": "pipe", "head100": "pipe"}.get(out, out), err, env, cwd, fsize, td, pre, out_path)
         got = None
         try:
             if out == "slow":
@@ -160,12 +253,40 @@ def cpu_seconds(p):
 
 
 def set_nonblocking(fd):
-    """O_NONBLOCK (POSIX); a Windows pipe takes it through os.set_blocking from Python 3.12 (PIPE_NOWAIT)"""
-    os.set_blocking(fd, False)
+    """O_NONBLOCK on a pipe's write end (POSIX); on Windows PIPE_NOWAIT through SetNamedPipeHandleState, since an anonymous
+    pipe is a named pipe there (os.set_blocking takes one only from Python 3.12) — as ap2-evidence-pack's _ap2_platform"""
+    if not WIN:
+        os.set_blocking(fd, False)
+        return
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.SetNamedPipeHandleState.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p, ctypes.c_void_p)
+    mode = wintypes.DWORD(0x00000001)   # PIPE_NOWAIT | PIPE_READMODE_BYTE
+    if not k32.SetNamedPipeHandleState(msvcrt.get_osfhandle(fd), ctypes.byref(mode), None, None):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
-NONBLOCKING_PIPE = not WIN or __import__("sys").version_info >= (3, 12)
-NO_NONBLOCKING_PIPE = "os.set_blocking() takes a Windows pipe from Python 3.12 only: before it the stdlib cannot make one non-blocking"
+def fill(w):
+    """write into the non-blocking pipe `w` until it is full; the bytes written. A full pipe is BlockingIOError, or on
+    Windows 0 bytes taken, or before Python 3.12 OSError ENOSPC"""
+    import errno
+    filled = 0
+    while True:
+        try:
+            n = os.write(w, b"P" * 4096)
+        except BlockingIOError:
+            return filled
+        except OSError as e:
+            if WIN and e.errno == errno.ENOSPC:
+                return filled
+            raise
+        if not n:
+            return filled
+        filled += n
+
+
 
 
 def deny_writes(test, folder):

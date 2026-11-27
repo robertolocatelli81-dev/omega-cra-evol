@@ -100,16 +100,14 @@ def write_big(d):
     return p
 
 
-def run(argv, mode, W, cwd=ROOT, env=None, fsize=None):
+def run(argv, mode, W, cwd=ROOT, env=None, fsize=None, stdout_only=False):
     """(exit code, stderr text, stdout bytes or None) of argv, stdout and stderr in `mode` (MODES)"""
     e = dict(os.environ, W=W, **(env or {}))
     e.pop("PYTHONPATH", None)
     out, err = MODES[mode]
     if "devfull" in (out, err) and not S.HAVE_DEVFULL:
         raise unittest.SkipTest(S.NO_DEVFULL)
-    if fsize is not None and not S.HAVE_FSIZE:
-        raise unittest.SkipTest(S.NO_FSIZE)
-    rc, got, err_text = S.run(argv, out, err, env=e, cwd=cwd, fsize=fsize)
+    rc, got, err_text = S.run(argv, out, err, env=e, cwd=cwd, fsize=fsize, stdout_only=stdout_only)
     return rc, err_text, got if out in ("file", "slow") else None
 
 
@@ -366,13 +364,11 @@ class VerifiersReceiptNotWritten(unittest.TestCase):
 
     def test_large_receipt_file_size_limit(self):
         """stdout a regular file that refuses past 4 KiB: 74 and the line, never the verdict's code with a cut receipt"""
-        if not S.HAVE_FSIZE:
-            self.skipTest(S.NO_FSIZE)
         cmds = {name: base + [self.big] for name, base in self.verifiers().items()}
         cmds["python"] = PY + ["verify", self.big]
         for name, cmd in cmds.items():
             with self.subTest(verifier=name):
-                rc, err, got = run(cmd, "file", self.W, fsize=4096)
+                rc, err, got = run(cmd, "file", self.W, fsize=4096, stdout_only=True)   # Windows: a stdout that cannot grow
                 self.assertEqual(rc, 74, f"{name}: exit {rc}, {len(got or b'')} bytes, stderr {err!r}")
                 self.assertIn("receipt not written: ", err)
 
@@ -392,13 +388,26 @@ class LedgerNeverHalfWritten(unittest.TestCase):
     def py(self, *args):
         return PY + list(args)
 
+    def on_volume(self):
+        """Windows, no RLIMIT_FSIZE: the ledger moves to the full volume (filled after the setup), where no line fits"""
+        self.W = S.volume_dir(self)
+        self.ledger = os.path.join(self.W, "l.jsonl")
+        self.args = ["--ledger", self.ledger, "--product", "p", "--version", "1"]
+
     def test_line_cut_by_file_size_limit_leaves_ledger_unchanged(self):
+        if not S.HAVE_FSIZE:
+            self.on_volume()
         subprocess.run(PY + ["vuln", *self.args, "--id", "CVE-2026-0001", "--aware", self.aware], cwd=ROOT, check=True, capture_output=True)
         before = read(self.ledger)
         self.assertLess(len(before), 2048)
-        rc, err, _ = run(self.py("sbom", *self.args, "--from-cyclonedx", SYFT, "--no-store-source"), "file", self.W, fsize=2048)
+        if not S.HAVE_FSIZE:
+            S.fill_volume()
+        rc, err, _ = run(self.py("sbom", *self.args, "--from-cyclonedx", SYFT, "--no-store-source"), "file", self.W,
+                         fsize=2048 if S.HAVE_FSIZE else None)
         self.assertEqual(rc, 74, err)   # nothing recorded: 74 since 13/10 (exit 1 with a traceback before)
         self.assertEqual(read(self.ledger), before, "half a record was left in the hash-chained ledger")
+        if not S.HAVE_FSIZE:
+            S.unfill_volume()   # room again for the next record
         subprocess.run(PY + ["vuln", *self.args, "--id", "CVE-2026-0002", "--aware", self.aware], cwd=ROOT, check=True, capture_output=True)
         sys.path.insert(0, ROOT)
         from omega_cra_evol.ledger import Ledger
@@ -444,8 +453,13 @@ class LedgerNeverHalfWritten(unittest.TestCase):
         with open(fpath, "w", encoding="utf-8") as f:
             json.dump(fields, f)
         drop = os.path.join(self.W, "drop")
+        if not S.HAVE_FSIZE:   # Windows: the drop folder on the full volume, where the drop file cannot be written
+            drop = os.path.join(S.volume_dir(self), "drop")
         os.mkdir(drop)
-        rc, err, _ = run(self.py("notice", *self.args, "--stage", "early_warning", "--fields", fpath, "--drop", drop), "file", self.W, fsize=4096)
+        if not S.HAVE_FSIZE:
+            S.fill_volume()
+        rc, err, _ = run(self.py("notice", *self.args, "--stage", "early_warning", "--fields", fpath, "--drop", drop), "file", self.W,
+                         fsize=4096 if S.HAVE_FSIZE else None)
         self.assertEqual(rc, 74, err)
         self.assertEqual(os.listdir(drop), [], "a half-written drop file was left")
         self.assertEqual(read(self.ledger), before)
@@ -453,8 +467,13 @@ class LedgerNeverHalfWritten(unittest.TestCase):
     @unittest.skipUnless(HAVE_SIGN, "keygen needs cryptography")
     def test_keygen_seed_not_written_leaves_no_stub(self):
         key = os.path.join(self.W, "k.seed")
-        rc, err, _ = run(self.py("keygen", key), "file", self.W, fsize=0)
+        if not S.HAVE_FSIZE:   # Windows: the seed on the full volume
+            key = os.path.join(S.volume_dir(self), "k.seed")
+            S.fill_volume()
+        rc, err, _ = run(self.py("keygen", key), "file", self.W, fsize=0 if S.HAVE_FSIZE else None)
         self.assertEqual(rc, 74, err)
+        if not S.HAVE_FSIZE:
+            S.unfill_volume()   # room again: the second keygen below must succeed there
         self.assertFalse(os.path.lexists(key), "an empty seed would block the next keygen (O_EXCL)")
         rc, err, _ = run(self.py("keygen", key), "file", self.W)
         self.assertEqual(rc, 0, err)

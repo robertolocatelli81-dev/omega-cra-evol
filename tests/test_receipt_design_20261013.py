@@ -38,7 +38,7 @@ EX_IOERR = 74
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _streams as S  # noqa: E402
 NO_FIFO = "Windows has no FIFO in a folder (its named pipes live under \\\\.\\pipe\\ only): a FIFO at a file's own path has no equivalent there"
-FSIZE_MODES = ("fsize_cut",) if S.HAVE_FSIZE else ()   # Windows: S.NO_FSIZE
+FSIZE_MODES = ("fsize_cut",) if S.HAVE_FSIZE or S.HAVE_FULL_VOLUME else ()   # Windows: a stdout that cannot grow (full volume)
 HAVE_SIGN = True
 try:
     import cryptography  # noqa: F401
@@ -59,7 +59,7 @@ def run(argv, mode, env=None, cwd=ROOT):
     with the system's own means)"""
     e = _env(env)
     if mode == "fsize_cut":   # 1 000 bytes already there, limit 1 024: 24 bytes taken, then EFBIG
-        return S.run(argv, "file", env=e, cwd=cwd, fsize=1024, pre=b"x" * 1000)
+        return S.run(argv, "file", env=e, cwd=cwd, fsize=1024, pre=b"x" * 1000, stdout_only=True)
     if mode == "devfull" and not S.HAVE_DEVFULL:
         raise unittest.SkipTest(S.NO_DEVFULL)
     rc, out, err = S.run(argv, mode, env=e, cwd=cwd)
@@ -73,15 +73,7 @@ def run_prefilled(argv, env=None):
     Returns (idle, least CPU in a window, exit code, receipt bytes or None, stderr text)."""
     r, w = os.pipe()
     S.set_nonblocking(w)
-    filled = 0
-    while True:
-        try:
-            n = os.write(w, b"P" * 4096)
-        except BlockingIOError:
-            break
-        if not n:   # a Windows non-blocking pipe may take 0 bytes instead of raising
-            break
-        filled += n
+    filled = S.fill(w)
     try:
         p = subprocess.Popen(argv, stdout=w, stderr=subprocess.PIPE, cwd=ROOT, env=_env(env))
     finally:
@@ -175,8 +167,8 @@ class StreamsHarness(unittest.TestCase):
         self.assertEqual(self.code("readonly"), 20)
         if S.HAVE_DEVFULL:
             self.assertEqual(self.code("devfull"), 20)
-        if S.HAVE_FSIZE:
-            self.assertEqual(self.code("file", fsize=1024), 20)
+        if S.HAVE_FSIZE or S.HAVE_FULL_VOLUME:   # Windows: the stdout file on the full volume
+            self.assertEqual(self.code("file", fsize=1024, stdout_only=True), 20)
         rc, got, _ = S.run([sys.executable, "-c", "import sys; sys.stdout.write('y' * 1000)"], "slow", env=_env())
         self.assertEqual((rc, got), (0, b"y" * 1000))
         self.assertEqual(S.run([sys.executable, "-c", "import sys; sys.exit(0 if sys.stderr is None else 3)"], "file", "closed", env=_env())[0], 0)
@@ -214,7 +206,6 @@ class Unbuffered(unittest.TestCase):
             self.assertEqual(run(argv, mode, UNBUF)[0], EX_IOERR, mode)
 
 
-@unittest.skipUnless(S.NONBLOCKING_PIPE, S.NO_NONBLOCKING_PIPE)
 class NonBlockingStdout(unittest.TestCase):
     """a full non-blocking stdout is waited for asleep, never reported as 74 (the reader is slow, not gone)"""
 
@@ -367,22 +358,13 @@ class InProcess(unittest.TestCase):
         self.assertEqual((rc, head), (0, "before"))
         self.assertIn("title", json.loads(rest))
 
-    @unittest.skipUnless(S.NONBLOCKING_PIPE, S.NO_NONBLOCKING_PIPE)
     def test_unflushed_caller_text_on_a_full_nonblocking_pipe(self):
         """the caller's text still in its buffer, stdout a non-blocking pipe already full: that text is flushed first
         and waited for like the receipt — exit 0, "before" then the receipt, the process asleep meanwhile (at e25795e:
         exit 74 and nothing written)"""
         r, w = os.pipe()
         S.set_nonblocking(w)
-        filled = 0
-        while True:
-            try:
-                n = os.write(w, b"P" * 4096)
-            except BlockingIOError:
-                break
-            if not n:
-                break
-            filled += n
+        filled = S.fill(w)
         s = io.TextIOWrapper(io.BufferedWriter(io.FileIO(w, "w", closefd=False)), encoding="utf-8")
         s.write("before\n")
         got = []
@@ -454,6 +436,19 @@ class Encodings(unittest.TestCase):
         self.assertEqual(out_of(ref, "utf-16", "pipe", {}).startswith(b"\xff\xfe"), S.WIN)
 
 
+class DefaultEncoding(unittest.TestCase):
+    """a user who sets nothing: no PYTHONIOENCODING, no PYTHONUTF8, stdout a pipe. A receipt with a character outside the
+    ANSI code page Windows gives a pipe (cp1252) must arrive, in UTF-8 as the other verifiers write it, with the verdict's
+    code — never 74"""
+
+    def test_a_receipt_outside_the_code_page(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8", "PYTHONPATH")}
+        name = "n\u00f6-\u2713-\u0416.json"   # ö is in cp1252; ✓ and Ж are not
+        r = subprocess.run(PY + ["verify", name], capture_output=True, cwd=ROOT, env=env, timeout=120)
+        self.assertEqual(r.returncode, 1, r.stderr.decode("utf-8", "replace")[-300:])
+        self.assertIn(name, r.stdout.decode("utf-8"))
+
+
 class PromisedFilesAndLedger(unittest.TestCase):
     """the temporary of a promised file has a name nobody can predict (created with O_EXCL): a symlink or a FIFO planted
     at `<path>.tmp` is neither followed nor waited on; a ledger line or a stored source document that cannot be written
@@ -498,23 +493,30 @@ class PromisedFilesAndLedger(unittest.TestCase):
         self.assertEqual(self.vuln().returncode, 0)
         with open(self.ledger, "rb") as f:
             before = f.read()
-        out = os.path.join(self.W, "p.json")
-        if not S.HAVE_FSIZE:
-            self.skipTest(S.NO_FSIZE)
-        rc, _, err = S.run(PY + ["pack", *self.args, "--out", out], "devnull", env=_env(), cwd=ROOT, fsize=1024, timeout=60)
+        out_dir, limit = self.W, {"fsize": 1024}
+        if not S.HAVE_FSIZE:   # Windows: the pack goes to a full volume, where its bytes cannot be written
+            out_dir, limit = S.volume_dir(self), {}
+            S.fill_volume()
+        out = os.path.join(out_dir, "p.json")
+        rc, _, err = S.run(PY + ["pack", *self.args, "--out", out], "devnull", env=_env(), cwd=ROOT, timeout=60, **limit)
         self.assertEqual(rc, EX_IOERR, err)
         self.assertTrue(one_line(err), err)
-        self.assertEqual([n for n in os.listdir(self.W) if n.startswith("p.json")], [])
+        self.assertEqual([n for n in os.listdir(out_dir) if n.startswith("p.json")], [])
         with open(self.ledger, "rb") as f:
             self.assertEqual(f.read(), before)
 
     def test_ledger_line_not_written_is_74(self):
+        limit = {"fsize": 1024}
+        if not S.HAVE_FSIZE:   # Windows: the ledger on a full volume, where its next line cannot be written
+            self.W, limit = S.volume_dir(self), {}
+            self.ledger = os.path.join(self.W, "l.jsonl")
+            self.args = ["--ledger", self.ledger, "--product", "p", "--version", "1"]
         self.assertEqual(self.vuln().returncode, 0)
         with open(self.ledger, "rb") as f:
             before = f.read()
         if not S.HAVE_FSIZE:
-            self.skipTest(S.NO_FSIZE)
-        rc, out, err = S.run(PY + ["sbom", *self.args, "--installed", "pip"], "pipe", env=_env(), cwd=ROOT, fsize=1024, timeout=60)
+            S.fill_volume()
+        rc, out, err = S.run(PY + ["sbom", *self.args, "--installed", "pip"], "pipe", env=_env(), cwd=ROOT, timeout=60, **limit)
         self.assertEqual((rc, out), (EX_IOERR, b""), err)
         self.assertTrue(one_line(err) and "nothing was recorded" in err, err)
         with open(self.ledger, "rb") as f:
@@ -564,10 +566,13 @@ class WriteTmp(unittest.TestCase):
         self.W = tempfile.mkdtemp(prefix="cra_wt_")
         self.addCleanup(shutil.rmtree, self.W, True)
 
-    @unittest.skipUnless(S.HAVE_FSIZE, S.NO_FSIZE)
     def test_short_write_under_a_file_size_limit(self):
-        code = ("import resource, sys; sys.path.insert(0, sys.argv[1]); from omega_cra_evol import outputs\n"
-                "resource.setrlimit(resource.RLIMIT_FSIZE, (100, 100))\n"
+        """Windows: the target on a full volume (no RLIMIT_FSIZE there): the write is refused at the first byte"""
+        limit = "import resource; resource.setrlimit(resource.RLIMIT_FSIZE, (100, 100))\n"
+        if not S.HAVE_FSIZE:
+            self.W, limit = S.volume_dir(self), ""
+            S.fill_volume()
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from omega_cra_evol import outputs\n" + limit +
                 "try:\n    outputs.write_tmp(sys.argv[2], 'x' * 1000)\nexcept outputs.OutputNotWritten as e:\n    print('refused', e)\n"
                 "else:\n    print('written')\n")
         target = os.path.join(self.W, "p.json")

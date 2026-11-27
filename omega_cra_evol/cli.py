@@ -166,6 +166,20 @@ def _wait_writable(buf: Any) -> None:
         raise OSError(f"stdout is non-blocking and cannot be waited for: {e}")
 
 
+def _full_pipe_error(e: OSError, buf: Any) -> bool:
+    """A full non-blocking pipe as Windows reports it before Python 3.12: OSError ENOSPC, not BlockingIOError. True only
+    for that errno on a descriptor that is a pipe (GetFileType FILE_TYPE_PIPE), so a full disk stays the error it is."""
+    import errno
+    if os.name != "nt" or e.errno != errno.ENOSPC or isinstance(e, BlockingIOError):
+        return False
+    try:
+        import ctypes
+        import msvcrt
+        return ctypes.windll.kernel32.GetFileType(msvcrt.get_osfhandle(buf.fileno())) == 3   # FILE_TYPE_PIPE
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _write_all(text: str) -> None:
     """Write the whole text to stdout and flush it; OSError when it did not all get there. The bytes go to
     `sys.stdout.buffer` in a loop that checks the count: with -u or PYTHONUNBUFFERED that is a raw FileIO whose write()
@@ -186,20 +200,33 @@ def _write_all(text: str) -> None:
                 if buf is None:
                     raise
                 _wait_writable(buf)
+            except OSError as e:
+                if buf is None or not _full_pipe_error(e, buf):
+                    raise
+                _wait_writable(buf)
         if buf is None:   # an in-process text stream (io.StringIO): no bytes below it
             out.write(text)
             out.flush()
             return
         data = memoryview(_text_layer_bytes(out, buf, text))
+        # Windows before Python 3.12 reports a full non-blocking pipe as ENOSPC with no count, and a BufferedWriter given
+        # more than its buffer can hand part of it to the pipe before raising (retried whole, that part came twice:
+        # ap2-evidence-pack, same author, CI run 45561704870). There it is written in pieces of 4096 bytes, under the
+        # buffer's 8192: each is copied whole into the buffer or not at all.
+        step = 4096 if os.name == "nt" else len(data)
         while data:
             try:
-                n = buf.write(data)
+                n = buf.write(data[:step])
                 waited = False
             except BlockingIOError as e:   # buffered stdout on a full non-blocking pipe: part of it taken
                 n, waited = e.characters_written, True
+            except OSError as e:   # Windows before Python 3.12: ENOSPC for that pipe, nothing taken
+                if not _full_pipe_error(e, buf):
+                    raise
+                n, waited = 0, True
             if n is None:   # raw stdout on a full non-blocking pipe: nothing taken
                 n, waited = 0, True
-            if n < 0 or n > len(data) or (n == 0 and not waited):
+            if n < 0 or n > min(len(data), step) or (n == 0 and not waited):
                 raise OSError(f"short write: {len(data)} bytes not written")
             data = data[n:]
             if data and waited:
@@ -209,6 +236,10 @@ def _write_all(text: str) -> None:
                 buf.flush()
                 return
             except BlockingIOError:
+                _wait_writable(buf)
+            except OSError as e:
+                if not _full_pipe_error(e, buf):
+                    raise
                 _wait_writable(buf)
     except ValueError as e:   # I/O operation on a closed file, or text the stream cannot encode
         raise OSError(str(e))
