@@ -21,16 +21,26 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None,
     return builtins.open(file, mode, buffering, encoding, errors, newline, closefd, opener)
 
 
-HELD = []   # Windows: handles that keep a file unreadable until the run ends
+HELD = []   # Windows: the processes whose locks keep files unreadable until the run ends
+
+_LOCKER = ("import msvcrt, os, sys\n"
+           "f = open(sys.argv[1], 'r+b')\n"
+           "msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, max(1, os.path.getsize(sys.argv[1])))\n"
+           "print('locked', flush=True)\n"
+           "sys.stdin.read()\n")
 
 
 def unreadable(path):
-    """`path` cannot be opened for reading: mode 000 (POSIX). Windows: the mode does not stop a read, and an ACL entry that
-    denies it did not stop Node and Go on the CI runner (CI 27/11/2026: they read it where Python could not); the file
-    held open here with no sharing does stop every opener (a sharing violation)"""
+    """`path` cannot be read: mode 000 (POSIX). Windows: the mode does not stop a read, and neither an ACL entry denying
+    it nor holding the file open with no sharing stopped Node and Go on the CI runner (CI runs 45979434746 and
+    46007077927: they read it where Python and Rust could not). A byte-range lock over the whole file, held by another
+    process until the run ends, makes every read of it fail (ERROR_LOCK_VIOLATION), whatever the reader's privileges,
+    the in-process reference's included."""
     if WIN:
-        import _winapi
-        HELD.append(_winapi.CreateFile(path, 0x80000000, 0, 0, 3, 0, 0))   # GENERIC_READ, no FILE_SHARE_*, OPEN_EXISTING
+        p = subprocess.Popen([sys.executable, "-c", _LOCKER, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        if p.stdout.readline().strip() != "locked":
+            raise RuntimeError(f"the lock on {path} was not taken")
+        HELD.append(p)
     else:
         os.chmod(path, 0)
 
@@ -880,10 +890,8 @@ def main():
     print(f"\ncases={n} verifiers={sorted(vs)} divergences={len(diverg)}")
     for d in diverg:
         print("DIVERGENCE", d)
-    if WIN:
-        import _winapi
-        for h in HELD:
-            _winapi.CloseHandle(h)
+    for p in HELD:
+        p.stdin.close(); p.wait(timeout=60)
     shutil.rmtree(base, ignore_errors=True)
     return 1 if diverg else 0
 
