@@ -448,7 +448,10 @@ class Encodings(unittest.TestCase):
                     self.assertEqual(a, b, f"{enc} {dest} {env}")
         # the control the rule rests on: a BOM on a utf-16 file at offset 0, none on a pipe
         self.assertTrue(out_of(cli, "utf-16", "file", {}).startswith(b"\xff\xfe"))
-        self.assertFalse(out_of(cli, "utf-16", "pipe", {}).startswith(b"\xff\xfe"))
+        # on a pipe: none on POSIX; on Windows Python's own layer writes one too (measured on windows-latest, 27/11/2026)
+        # — the receipt follows the layer, which the loop above checks
+        self.assertEqual(out_of(cli, "utf-16", "pipe", {}).startswith(b"\xff\xfe"), S.WIN)
+        self.assertEqual(out_of(ref, "utf-16", "pipe", {}).startswith(b"\xff\xfe"), S.WIN)
 
 
 class PromisedFilesAndLedger(unittest.TestCase):
