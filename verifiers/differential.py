@@ -2,14 +2,34 @@
 """Differential oracle: the Python reference and the independent JS / Go / Rust verifiers must give the SAME
 verdict (ok, authenticity, anchored) on every fixture — intact and tampered. A verifier that is not installed is
 reported as absent (pass --require js,go,rust to make absence a failure, as CI does)."""
-import json, os, shutil, subprocess, sys, tempfile
-try:
-    import resource
-except ImportError:   # non-POSIX: the hazard cases then run without a per-child memory bound
-    resource = None
+import builtins, json, os, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+import _streams as S   # the memory bound of a child on each system (RLIMIT_DATA, a Job Object; none on macOS)
+WIN = os.name == "nt"
+AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0   # root reads a mode-000 file: those cases do not exist for it
+
+
+def open(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None):
+    """this module's files are UTF-8 with "\n" on every system (Windows: the locale's code page and "\r\n" otherwise)"""
+    if "b" not in mode:
+        encoding = encoding or "utf-8"
+        if newline is None and any(c in mode for c in "wax+"):
+            newline = "\n"
+    return builtins.open(file, mode, buffering, encoding, errors, newline, closefd, opener)
+
+
+def unreadable(path):
+    """`path` cannot be read: mode 000 (POSIX); Windows, where the mode does not stop a read: an ACL entry denying it"""
+    if WIN:
+        subprocess.run(["icacls", path, "/deny", "*S-1-1-0:(R)"], check=True, capture_output=True, timeout=60)
+    else:
+        os.chmod(path, 0)
+
+
+NO_FIFO = "Windows has no FIFO in a folder (named pipes live under \\\\.\\pipe\\ only): no equivalent at this path"
 from omega_cra_evol.canonical import sha3_hex
 from omega_cra_evol.locker import EvidenceLocker
 from omega_cra_evol.signing import keygen, load_key, sign_pack, sidecar_path
@@ -325,9 +345,9 @@ def cases(base):
     def side_dir(d):
         build(d); os.makedirs(os.path.join(d, "p.json.sig.json"))
     case("sidecar_is_a_directory", side_dir)
-    if os.geteuid() != 0:
+    if not AS_ROOT:
         def side_mode0(d):
-            lk, key, pack, pk = build(d, sign=True); os.chmod(sidecar_path(pack), 0)
+            lk, key, pack, pk = build(d, sign=True); unreadable(sidecar_path(pack))
         case("sidecar_unreadable", side_mode0)
     def lf_int(d):
         build(d); p = os.path.join(d, "p.json"); j = json.load(open(p)); j["ledger_file"] = 1; json.dump(j, open(p, "w")); rehash(p)
@@ -506,9 +526,9 @@ def cases(base):
         lk, key, pack, pk = build(d); newp = os.path.join(d, "p" * 246 + ".json"); os.rename(pack, newp)
         j = json.load(open(newp)); json.dump(j, open(newp, "w")); return {"pack": newp}
     case("pack_name_too_long_for_sidecar", long_name)
-    if os.geteuid() != 0:
+    if not AS_ROOT:
         def ledger_mode0(d):
-            build(d); os.chmod(os.path.join(d, "l.jsonl"), 0)
+            build(d); unreadable(os.path.join(d, "l.jsonl"))
         case("ledger_unreadable", ledger_mode0)
     # ── 25/09/2026: files a verifier must not read (FIFO, /dev/zero, above the per-document bound), a present-and-null
     # fingerprint, an injected internal error. Each carries its DECLARED outcome (`expect`): the five rows — the Python
@@ -522,9 +542,11 @@ def cases(base):
             os.remove(path)
         if kind == "fifo":
             os.mkfifo(path)
+        elif WIN:   # a link to NUL cannot be made there (WinError 4392): a folder is the object that is not a regular file
+            os.mkdir(path)
         else:
             os.symlink("/dev/zero", path)
-    for kind in ("fifo", "devzero"):
+    for kind in ("devzero",) if WIN else ("fifo", "devzero"):
         case(f"pack_{kind}", lambda d, k=kind: (build(d, sign=True), swap(os.path.join(d, "p.json"), k), hz("pack-json", NOT_REG))[2])
         case(f"sidecar_{kind}", lambda d, k=kind: (build(d, sign=True), swap(os.path.join(d, "p.json.sig.json"), k), hz("producer-signature", NOT_REG))[2])
         def led(d, k=kind):
@@ -538,8 +560,11 @@ def cases(base):
             build(d, sign=True); t = os.path.join(d, "trust.json"); swap(t, k)
             return {"trust": t, "hazard": True, "expect": {"unreadable": NOT_REG}}
         case(f"trust_store_{kind}", trustz)
+    if WIN:
+        print("pack, sidecar, ledger, tip and trust-store FIFO cases not run:", NO_FIFO)
     def src_devzero(d):   # a stored source document replaced by a symlink to /dev/zero: FAIL, never read
-        build_with_source(d); sd = os.path.join(d, "l.jsonl.sources"); f = os.path.join(sd, os.listdir(sd)[0]); os.remove(f); os.symlink("/dev/zero", f)
+        build_with_source(d); sd = os.path.join(d, "l.jsonl.sources"); f = os.path.join(sd, os.listdir(sd)[0]); os.remove(f)
+        os.mkdir(f) if WIN else os.symlink("/dev/zero", f)   # Windows: a folder (no link to a device there)
         return hz("source-documents", "stored path is not a regular file")
     case("source_document_devzero", src_devzero)
     def pad_to(path, total):   # trailing ASCII spaces: the JSON value — and every digest — is unchanged, only the file grows
@@ -611,11 +636,11 @@ def cases(base):
             open(p, "a").write(line + "\n")
         case("ledger_line_exactly_64MiB", lambda d: exact(d, 64 << 20))        # accepted by all four
         case("ledger_line_64MiB_plus_1", lambda d: exact(d, (64 << 20) + 1))   # refused by all four
-    if os.geteuid() != 0:   # root reads anything: the case would not be a case
-        def unreadable(d):
+    if not AS_ROOT:   # root reads anything: the case would not be a case
+        def src_unreadable(d):
             build_with_source(d); sd = os.path.join(d, "l.jsonl.sources")
-            for f in os.listdir(sd): os.chmod(os.path.join(sd, f), 0)
-        case("sbom_source_unreadable", unreadable)
+            for f in os.listdir(sd): unreadable(os.path.join(sd, f))
+        case("sbom_source_unreadable", src_unreadable)
     # 25/09 (4-mind round 2, A1): the identity key makes R=identity, S=0 verify on every message under OpenSSL (with any small-order key a signature on any message can be built by choosing R, measured 26/09/2026) —
     # a forged sidecar with that key PINNED in the trust store was trusted-signed; every verifier must refuse it
     for nm, keyhex in (("weak_key_identity_pinned", "01" + "00" * 31),
@@ -696,10 +721,6 @@ def cases(base):
     return out
 
 
-def _limit_memory():
-    resource.setrlimit(resource.RLIMIT_DATA, (HAZARD_MEM, HAZARD_MEM))
-
-
 def run_cli(cmd, pack, opts):
     args = list(cmd) + [pack]
     if opts.get("ledger") is not None: args += ["--ledger", opts["ledger"]]
@@ -708,12 +729,17 @@ def run_cli(cmd, pack, opts):
     if opts.get("require_sources"): args += ["--require-sources"]
     args += opts.get("raw_args", [])
     hazard = bool(opts.get("hazard"))
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                         cwd=ROOT, env={**os.environ, "PYTHONPATH": ROOT, **opts.get("env", {})},
+                         preexec_fn=S.memory_bound_preexec(HAZARD_MEM) if hazard else None)
+    if hazard and WIN:
+        S.bound_memory(p, HAZARD_MEM)
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=HAZARD_TIMEOUT if hazard else 120, cwd=ROOT,
-                           env={**os.environ, "PYTHONPATH": ROOT, **opts.get("env", {})},
-                           preexec_fn=_limit_memory if (hazard and resource is not None) else None)
+        out, err = p.communicate(timeout=HAZARD_TIMEOUT if hazard else 120)
     except subprocess.TimeoutExpired:
+        p.kill(); p.communicate()
         return {"error": "timeout (blocked)", "exit": None}
+    r = subprocess.CompletedProcess(args, p.returncode, out, err)
     try:
         j = json.loads(r.stdout)
     except ValueError:
@@ -760,7 +786,8 @@ def main():
         if os.path.getmtime(gob) < src_mtime:   # a stale binary would measure yesterday's Go (round 6: it did) — refuse, never report it as today's
             print(f"Go binary {gob} is older than verifiers/go/*.go: rebuild it before measuring"); return 2
         vs["go"] = [gob]
-    rb = os.environ.get("CRA_VERIFY_RUST") or (os.path.join(ROOT, "verifiers", "rust", "target", "release", "cra-verify") if os.path.exists(os.path.join(ROOT, "verifiers", "rust", "target", "release", "cra-verify")) else None)
+    built = os.path.join(ROOT, "verifiers", "rust", "target", "release", "cra-verify" + (".exe" if WIN else ""))
+    rb = os.environ.get("CRA_VERIFY_RUST") or (built if os.path.exists(built) else None)
     if rb:
         rs_dir = os.path.join(ROOT, "verifiers", "rust", "src")
         if os.path.getmtime(rb) < max(os.path.getmtime(os.path.join(rs_dir, f)) for f in os.listdir(rs_dir) if f.endswith(".rs")):

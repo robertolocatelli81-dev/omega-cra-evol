@@ -125,7 +125,16 @@ jobs:
           echo "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  gl.tgz" | sha256sum -c -
           tar xzf gl.tgz gitleaks && ./gitleaks git . --redact --exit-code 1
   verifiers:
-    runs-on: ubuntu-latest
+    # the four verifiers on the three systems: Go, Rust and Node toolchains exist for each; the official CycloneDX CLI
+    # publishes a binary for each (sha256 from the release's asset digests; the Linux one also measured on 15/11/2026)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -135,27 +144,60 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with: {go-version: "1.24"}
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: "macOS: a full volume, the equivalent of Linux's /dev/full (writes there fail with ENOSPC)"
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create -size 4m -fs HFS+ -volname crafull "$RUNNER_TEMP/full.dmg"
+          hdiutil attach "$RUNNER_TEMP/full.dmg"
+          : > /Volumes/crafull/sink
+          python -c "import sys; sys.path.insert(0, 'tests'); import _streams as S; S.fill_volume('/Volumes/crafull')"
+          if printf x > /Volumes/crafull/probe; then echo "the volume is not full"; exit 1; fi
+          echo "CRA_FULL_DIR=/Volumes/crafull" >> "$GITHUB_ENV"
+      - name: "Windows: a full volume, the equivalent of /dev/full and of a file size limit (writes there fail with ENOSPC)"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = Join-Path $env:RUNNER_TEMP "full.vhdx"
+          $s = Join-Path $env:RUNNER_TEMP "full.txt"
+          Set-Content $s "create vdisk file=`"$v`" maximum=16 type=fixed`r`nselect vdisk file=`"$v`"`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat quick label=CRAFULL`r`nassign letter=Q"
+          diskpart /s $s
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path Q:\)) { throw "the full volume was not made (diskpart exit $LASTEXITCODE)" }
+          New-Item -ItemType File Q:\sink | Out-Null
+          python -c "import sys; sys.path.insert(0, 'tests'); import _streams as S; S.fill_volume('Q:\\')"
+          $full = $false
+          try { [IO.File]::WriteAllBytes("Q:\probe", [byte[]](1)) } catch [IO.IOException] { $full = $true }
+          if (-not $full) { throw "the volume is not full: a 1-byte file was written" }
+          "CRA_FULL_DIR=Q:\" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Build the verifiers in other languages (Go std-only; Rust with ed25519-dalek)
         run: |
-          pip install ".[sign]"
-          (cd verifiers/go && go vet ./... && go build -o /tmp/cra-verify-go .)
+          python -m pip install ".[sign]"
+          exe=""; [ "$RUNNER_OS" = Windows ] && exe=".exe"
+          (cd verifiers/go && go vet ./... && go build -o "$RUNNER_TEMP/cra-verify-go$exe" .)
           (cd verifiers/rust && cargo build --release --locked)   # Cargo.lock in the repository: the same crate versions every run
+          echo "CRA_VERIFY_GO=$RUNNER_TEMP/cra-verify-go$exe" >> "$GITHUB_ENV"
+          echo "CRA_VERIFY_RUST=$GITHUB_WORKSPACE/verifiers/rust/target/release/cra-verify$exe" >> "$GITHUB_ENV"
       - name: Differential oracle — Python / JS / Go / Rust must agree on every fixture AND on the failing layers (absence = failure)
-        run: CRA_VERIFY_GO=/tmp/cra-verify-go python verifiers/differential.py --require js,go,rust
-      - name: A receipt that could not be written exits 74 — Python CLI, JS, Go and Rust (real processes on /dev/full and a closed pipe)
-        run: CRA_VERIFY_GO=/tmp/cra-verify-go CRA_VERIFY_RUST=verifiers/rust/target/release/cra-verify python -B -m unittest discover -s tests -p 'test_receipt_not_written_20261012.py' -v
+        run: python verifiers/differential.py --require js,go,rust
+      - name: A receipt that could not be written exits 74 — Python CLI, JS, Go and Rust (real processes on a full device and a closed pipe)
+        run: python -B -m unittest discover -s tests -p 'test_receipt_not_written_20261012.py' -v
       - name: The receipt whole or exit 74 — unbuffered Python, a full non-blocking stdout waited for, stdout read-only, usage with stderr lost (Python CLI, JS, Go and Rust; real processes)
-        run: CRA_VERIFY_GO=/tmp/cra-verify-go CRA_VERIFY_RUST=verifiers/rust/target/release/cra-verify python -B -m unittest discover -s tests -p 'test_receipt_design_20261013.py' -v
+        run: python -B -m unittest discover -s tests -p 'test_receipt_design_20261013.py' -v
       - name: Official CycloneDX CLI — the four CycloneDX generator fixtures, and the 1.6 and 1.7 exports of every fixture and of the installed floor, must validate
         run: |
-          curl -sSL -o /tmp/cyclonedx https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64
-          # the release publishes no checksum file: sha256 of the binary as downloaded on 15/11/2026, so a changed file stops the job
-          echo "bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746  /tmp/cyclonedx" | sha256sum -c -
-          chmod +x /tmp/cyclonedx
-          python - <<'PY'
+          case "$RUNNER_OS" in
+            Linux) asset=cyclonedx-linux-x64; sum=bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746;;
+            macOS) asset=cyclonedx-osx-arm64; sum=750c148780154833f6401f9067d08c5a4c31567b6ee3c26c062c3a95c62d741c;;
+            Windows) asset=cyclonedx-win-x64.exe; sum=9b360974c41a5d612eb026fb5e3bb1fa28e08865f7a4f915665b8bc94bd3bc31;;
+          esac
+          cli="$RUNNER_TEMP/$asset"
+          curl -sSL -o "$cli" "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/$asset"
+          python -c "import hashlib, sys; h = hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest(); sys.exit(0 if h == sys.argv[2] else 'sha256 ' + h)" "$cli" "$sum"
+          chmod +x "$cli"
+          CYCLONEDX="$cli" python - <<'PY'
           import glob, json, os, subprocess, sys
           sys.path.insert(0, ".")
           from omega_cra_evol.sbom import sbom_from_cyclonedx, sbom_from_installed, sbom_from_spdx
+          cdx, tmp = os.environ["CYCLONEDX"], os.environ["RUNNER_TEMP"]
           # cdxgen 12.8.4 repeats a bom-ref: not conformant from 0.13.0 (spec/SBOM_INGEST.md, CycloneDX rule 5), read here
           # with allow_nonconformant as in tests/test_sbom_sources.py; this step is about the exports, not about that rule
           allow = lambda p: os.path.basename(p).startswith("cdxgen-12.8.4_")
@@ -163,31 +205,43 @@ jobs:
           recs.append(("installed", sbom_from_installed("omega-cra-evol", "0.3.0", ["cryptography"], transitive=True)))
           n = 0
           for p in sorted(glob.glob("tests/fixtures/real_tools/*cyclonedx*.json")):   # the generators' documents themselves
-              v = json.load(open(p))["specVersion"]
-              subprocess.run(["/tmp/cyclonedx", "validate", "--input-file", p, "--input-format", "json", "--input-version", "v" + v.replace(".", "_"), "--fail-on-errors"], check=True)
+              v = json.load(open(p, encoding="utf-8"))["specVersion"]
+              subprocess.run([cdx, "validate", "--input-file", p, "--input-format", "json", "--input-version", "v" + v.replace(".", "_"), "--fail-on-errors"], check=True)
               n += 1
           for name, r in recs:
               for v in ("1.6", "1.7"):
-                  out = f"/tmp/export_{v}_{name}"; json.dump(r.to_cyclonedx_min(v), open(out, "w"))
-                  subprocess.run(["/tmp/cyclonedx", "validate", "--input-file", out, "--input-format", "json", "--input-version", "v" + v.replace(".", "_"), "--fail-on-errors"], check=True)
+                  out = os.path.join(tmp, f"export_{v}_{name}")
+                  with open(out, "w", encoding="utf-8") as f:
+                      json.dump(r.to_cyclonedx_min(v), f)
+                  subprocess.run([cdx, "validate", "--input-file", out, "--input-format", "json", "--input-version", "v" + v.replace(".", "_"), "--fail-on-errors"], check=True)
                   n += 1
-          bad = json.load(open("/tmp/export_1.7_installed")); bad["components"][0]["type"] = "not-a-type"; json.dump(bad, open("/tmp/bad.json", "w"))
-          assert subprocess.run(["/tmp/cyclonedx", "validate", "--input-file", "/tmp/bad.json", "--input-format", "json", "--input-version", "v1_7", "--fail-on-errors"]).returncode != 0, "positive control: the CLI must reject a broken document"
+          bad = json.load(open(os.path.join(tmp, "export_1.7_installed"), encoding="utf-8")); bad["components"][0]["type"] = "not-a-type"
+          badp = os.path.join(tmp, "bad.json")
+          with open(badp, "w", encoding="utf-8") as f:
+              json.dump(bad, f)
+          assert subprocess.run([cdx, "validate", "--input-file", badp, "--input-format", "json", "--input-version", "v1_7", "--fail-on-errors"]).returncode != 0, "positive control: the CLI must reject a broken document"
           print(f"cyclonedx-cli: {n} exports valid, positive control rejected")
           PY
       - name: Official SPDX tools (pyspdxtools) — the two SPDX generator fixtures must parse with no issue (its exit code is 0 even on an invalid document, so the output is the measure; positive control included)
         run: |
-          pip install "spdx-tools==0.8.5"
+          python -m pip install "spdx-tools==0.8.5"
           for f in tests/fixtures/real_tools/*spdx*.json; do out=$(pyspdxtools -i "$f" 2>&1); if [ -n "$out" ]; then echo "$f: $out"; exit 1; fi; echo "$f: no issue"; done
-          echo '{"spdxVersion":"SPDX-2.3"}' > /tmp/bad.spdx.json
-          if [ -z "$(pyspdxtools -i /tmp/bad.spdx.json 2>&1)" ]; then echo "positive control: pyspdxtools printed nothing on an invalid document"; exit 1; fi
+          echo '{"spdxVersion":"SPDX-2.3"}' > "$RUNNER_TEMP/bad.spdx.json"
+          if [ -z "$(pyspdxtools -i "$RUNNER_TEMP/bad.spdx.json" 2>&1)" ]; then echo "positive control: pyspdxtools printed nothing on an invalid document"; exit 1; fi
           echo "pyspdxtools: fixtures clean, positive control reported"
 
   interop-newest-cryptovalid:
     # README: "a ledger written here verifies unchanged with cryptovalid v0.15.0's reference verifier". The pinned wheel
     # keeps that sentence measurable; this job measures the same ledger against the NEWEST cryptovalid-opencore on the
     # index, so a cryptovalid release that stops accepting our ledgers turns this repository red, not a user's run.
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -195,8 +249,8 @@ jobs:
           python-version: "3.11"
       - name: "This package + the newest cryptovalid-opencore from the index (no pin)"
         run: |
-          pip install ".[sign,schema]"
-          pip install --extra-index-url https://robertolocatelli81-dev.github.io/pypi/ cryptovalid-opencore
+          python -m pip install ".[sign,schema]"
+          python -m pip install --extra-index-url https://robertolocatelli81-dev.github.io/pypi/ cryptovalid-opencore
           python -c "import importlib.metadata as m; print('cryptovalid-opencore', m.version('cryptovalid-opencore'))"
       - name: "Interop suite against the newest verifier (the test must run, not skip)"
         run: |
